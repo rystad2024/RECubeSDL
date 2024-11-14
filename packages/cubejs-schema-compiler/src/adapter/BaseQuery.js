@@ -130,6 +130,11 @@ export class BaseQuery {
   timeDimensions;
 
   /**
+   * @type {import('../compiler/JoinGraph').FinishedJoinTree}
+   */
+  join;
+
+  /**
    * BaseQuery class constructor.
    * @param {Compilers|*} compilers
    * @param {*} options
@@ -2029,9 +2034,15 @@ export class BaseQuery {
     }
   }
 
+  /**
+   *
+   * @param {import('../compiler/JoinGraph').FinishedJoinTree} join
+   * @param {unknown} subQueryDimensions
+   * @returns {string}
+   */
   joinQuery(join, subQueryDimensions) {
     const subQueryDimensionsByCube = R.groupBy(d => this.cubeEvaluator.cubeNameFromPath(d), subQueryDimensions);
-    const joins = join.joins.map(
+    const joins = join.joins.flatMap(
       j => {
         const [cubeSql, cubeAlias, conditions] = this.rewriteInlineCubeSql(j.originalTo, true);
         return [{
@@ -2041,7 +2052,7 @@ export class BaseQuery {
           // TODO handle the case when sub query referenced by a foreign cube on other side of a join
         }].concat((subQueryDimensionsByCube[j.originalTo] || []).map(d => this.subQueryJoin(d)));
       }
-    ).reduce((a, b) => a.concat(b), []);
+    );
 
     const [cubeSql, cubeAlias] = this.rewriteInlineCubeSql(join.root);
 
