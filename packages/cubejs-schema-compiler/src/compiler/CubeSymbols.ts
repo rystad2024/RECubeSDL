@@ -10,6 +10,13 @@ import type { ErrorReporter } from './ErrorReporter';
 
 export type ToString = { toString(): string };
 
+// TODO complete this type according to createCube
+// TODO proper union for relationship
+export type CubeJoinDefinition = {
+  relationship: string,
+  sql: string,
+};
+
 export interface CubeDefinition {
   name: string;
   extends?: (...args: Array<unknown>) => { __cubeName: string };
@@ -24,7 +31,7 @@ export interface CubeDefinition {
   preAggregations?: Record<string, any>;
   // eslint-disable-next-line camelcase
   pre_aggregations?: Record<string, any>;
-  joins?: Record<string, any>;
+  joins?: Record<string, CubeJoinDefinition>;
   accessPolicy?: any[];
   folders?: any[];
   includes?: any;
@@ -757,7 +764,7 @@ export class CubeSymbols {
     }
   }
 
-  protected funcArguments(func) {
+  public funcArguments(func: Function): string[] {
     const funcDefinition = func.toString();
     if (!this.funcArgumentsValues[funcDefinition]) {
       const match = funcDefinition.match(FunctionRegex);

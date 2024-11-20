@@ -143,6 +143,10 @@ export class PreAggregations {
 
   private preAggregationCubes(): string[] {
     const { join } = this.query;
+    if (!join) {
+      // This can happen with Tesseract, or when there's no cubes to join
+      throw new Error('Unexpected missing join tree for query');
+    }
     return join.joins.map(j => j.originalTo).concat([join.root]);
   }
 
