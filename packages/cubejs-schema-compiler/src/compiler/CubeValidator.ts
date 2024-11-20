@@ -1,7 +1,7 @@
 import Joi from 'joi';
 import cronParser from 'cron-parser';
 
-import type { CubeSymbols } from './CubeSymbols';
+import type { CubeDefinition, CubeSymbols } from './CubeSymbols';
 import type { ErrorReporter } from './ErrorReporter';
 
 /* *****************************
@@ -915,7 +915,7 @@ export class CubeValidator {
     return result;
   }
 
-  public isCubeValid(cube) {
+  public isCubeValid(cube: CubeDefinition): boolean {
     return this.validCubes[cube.name] || cube.isSplitView;
   }
 }
