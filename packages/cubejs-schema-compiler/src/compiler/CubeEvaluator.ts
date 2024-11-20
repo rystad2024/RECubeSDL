@@ -3,13 +3,15 @@ import R from 'ramda';
 
 import { CubeSymbols, type ToString } from './CubeSymbols';
 import { UserError } from './UserError';
-import { BaseQuery } from '../adapter';
+import { BaseQuery, PreAggregationDefinitionExtended } from '../adapter';
 import type { CubeValidator } from './CubeValidator';
 import type { ErrorReporter } from './ErrorReporter';
 
+// TODO replace Function with proper types
+
 export type SegmentDefinition = {
   type: string,
-  sql: Function,
+  sql(): string,
   primaryKey?: true,
   ownedByCube: boolean,
   fieldType?: string,
@@ -19,7 +21,7 @@ export type SegmentDefinition = {
 
 export type DimensionDefinition = {
   type: string,
-  sql: Function,
+  sql(): string,
   primaryKey?: true,
   ownedByCube: boolean,
   fieldType?: string,
@@ -41,7 +43,7 @@ export type TimeShiftDefinitionReference = {
 
 export type MeasureDefinition = {
   type: string,
-  sql: Function,
+  sql(): string,
   ownedByCube: boolean,
   rollingWindow?: any
   filters?: any
@@ -135,10 +137,29 @@ export type PreAggregationInfo = {
   indexesReferences: unknown,
 };
 
-export class CubeEvaluator extends CubeSymbols {
-  public evaluatedCubes: Record<string, any> = {};
+export type EvaluatedCubeDimensions = Record<string, DimensionDefinition>;
+export type EvaluatedCubeMeasures = Record<string, MeasureDefinition>;
+export type EvaluatedCubeSegments = Record<string, SegmentDefinition>;
+export type EvaluatedHierarchies = unknown;
 
-  public primaryKeys: Record<string, any> = {};
+export type EvaluatedCube = {
+  measures: EvaluatedCubeMeasures,
+  dimensions: EvaluatedCubeDimensions,
+  segments: EvaluatedCubeSegments,
+  joins: unknown,
+  hierarchies: unknown,
+  evaluatedHierarchies: EvaluatedHierarchies,
+  preAggregations: Record<string, PreAggregationDefinitionExtended>,
+  dataSource?: string,
+  folders: unknown,
+  sql: unknown,
+  sqlTable: unknown,
+};
+
+export class CubeEvaluator extends CubeSymbols {
+  public evaluatedCubes: Record<string, EvaluatedCube> = {};
+
+  public primaryKeys: Record<string, Array<string>> = {};
 
   public byFileName: Record<string, any> = {};
 
@@ -544,7 +565,7 @@ export class CubeEvaluator extends CubeSymbols {
     )(this.evaluatedCubes[cube].dimensions || {});
   }
 
-  public measuresForCube(cube) {
+  public measuresForCube(cube: string): EvaluatedCubeMeasures {
     return this.cubeFromPath(cube).measures || {};
   }
 
@@ -659,11 +680,11 @@ export class CubeEvaluator extends CubeSymbols {
     return this.byPath('segments', segmentPath);
   }
 
-  public cubeExists(cube) {
+  public cubeExists(cube: string): boolean {
     return !!this.evaluatedCubes[cube];
   }
 
-  public cubeFromPath(path: string) {
+  public cubeFromPath(path: string): EvaluatedCube {
     return this.evaluatedCubes[this.cubeNameFromPath(path)];
   }
 
@@ -697,7 +718,7 @@ export class CubeEvaluator extends CubeSymbols {
     throw new UserError(`Can't resolve member '${Array.isArray(path) ? path.join('.') : path}'`);
   }
 
-  public byPath(type: 'measures' | 'dimensions' | 'segments' | 'preAggregations', path: string | string[]) {
+  public byPath<T extends 'measures' | 'dimensions' | 'segments' | 'preAggregations'>(type: T, path: string | string[]): EvaluatedCube[T][string] {
     if (!type) {
       throw new Error(`Type can't be undefined for '${path}'`);
     }
@@ -707,19 +728,22 @@ export class CubeEvaluator extends CubeSymbols {
     }
 
     const cubeAndName = Array.isArray(path) ? path : path.split('.');
-    if (!this.evaluatedCubes[cubeAndName[0]]) {
+    const cube = this.evaluatedCubes[cubeAndName[0]];
+    if (cube === undefined) {
       throw new UserError(`Cube '${cubeAndName[0]}' not found for path '${path}'`);
     }
 
-    if (!this.evaluatedCubes[cubeAndName[0]][type]) {
+    const typeMembers = cube[type];
+    if (typeMembers === undefined) {
       throw new UserError(`${type} not defined for path '${path}'`);
     }
 
-    if (!this.evaluatedCubes[cubeAndName[0]][type][cubeAndName[1]]) {
+    const member = typeMembers[cubeAndName[1]];
+    if (member === undefined) {
       throw new UserError(`'${cubeAndName[1]}' not found for path '${path}'`);
     }
 
-    return this.evaluatedCubes[cubeAndName[0]][type][cubeAndName[1]];
+    return member as EvaluatedCube[T][string];
   }
 
   public parsePath(type: 'measures' | 'dimensions' | 'segments' | 'preAggregations', path: string): string[] {
