@@ -909,13 +909,13 @@ export class CubeValidator {
     if (result.error != null) {
       errorReporter.error(formatErrorMessage(result.error), result.error);
     } else {
-      this.validCubes[cube.name] = true;
+      this.validCubes.set(cube.name, true);
     }
 
     return result;
   }
 
   public isCubeValid(cube: CubeDefinition): boolean {
-    return this.validCubes[cube.name] || cube.isSplitView;
+    return this.validCubes.get(cube.name) ?? cube.isSplitView ?? false;
   }
 }
