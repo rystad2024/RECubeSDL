@@ -556,12 +556,15 @@ export class CubeEvaluator extends CubeSymbols {
   }
 
   public timeDimensionPathsForCube(cube: any) {
-    return R.compose(
+    return R.compose<
+      EvaluatedCubeDimensions,
+      EvaluatedCubeDimensions,
+      Array<string>,
+      Array<string>
+    >(
       R.map(dimName => `${cube}.${dimName}`),
       R.keys,
-      // @ts-ignore
       R.filter((d: any) => d.type === 'time')
-      // @ts-ignore
     )(this.evaluatedCubes[cube].dimensions || {});
   }
 
