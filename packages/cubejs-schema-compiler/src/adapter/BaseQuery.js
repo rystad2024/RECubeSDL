@@ -413,7 +413,7 @@ export class BaseQuery {
 
   /**
    *
-   * @returns {Array<Array<string>>}
+   * @returns {Array<string | Array<string>>}
    */
   get allJoinHints() {
     if (!this.collectedJoinHints) {
@@ -2001,6 +2001,12 @@ export class BaseQuery {
     ));
   }
 
+  /**
+   *
+   * @param {string} cube
+   * @param {boolean} [isLeftJoinCondition]
+   * @returns {[string, string, string?]}
+   */
   rewriteInlineCubeSql(cube, isLeftJoinCondition) {
     const sql = this.cubeSql(cube);
     const cubeAlias = this.cubeAlias(cube);
@@ -2047,6 +2053,11 @@ export class BaseQuery {
     ]);
   }
 
+  /**
+   *
+   * @param {JoinChain} toJoin
+   * @returns {string}
+   */
   joinSql(toJoin) {
     const [root, ...rest] = toJoin;
     const joins = rest.map(
@@ -2355,6 +2366,10 @@ export class BaseQuery {
     );
   }
 
+  /**
+   * @param {string} cube
+   * @returns {unknown}
+   */
   cubeSql(cube) {
     const foundPreAggregation = this.preAggregations.findPreAggregationToUseForCube(cube);
     if (foundPreAggregation &&
@@ -3328,6 +3343,11 @@ export class BaseQuery {
       .map(s => `(${s})`).join(' AND ');
   }
 
+  /**
+   * @param {string} primaryKeyName
+   * @param {string} cubeName
+   * @returns {unknown}
+   */
   primaryKeySql(primaryKeyName, cubeName) {
     const primaryKeyDimension = this.cubeEvaluator.dimensionByPath([cubeName, primaryKeyName]);
     return this.evaluateSymbolSql(

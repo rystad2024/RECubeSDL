@@ -124,7 +124,12 @@ export class PreAggregations {
     if (
       !isInPreAggregationQuery ||
       isInPreAggregationQuery && this.query.options.useOriginalSqlPreAggregationsInPreAggregation) {
-      return R.pipe(
+      return R.pipe<
+          string[],
+          FullPreAggregationDescription[],
+          FullPreAggregationDescription[],
+          FullPreAggregationDescription[]
+      >(
         R.map(cube => {
           const { preAggregations } = this.collectOriginalSqlPreAggregations(() => this.query.cubeSql(cube));
           return R.unnest(preAggregations.map(p => this.preAggregationDescriptionsFor(p)));
