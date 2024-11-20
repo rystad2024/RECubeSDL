@@ -990,7 +990,7 @@ export class PreAggregationLoader {
         actualTables,
       );
       const versionEntriesToSave = R.pipe<
-        VersionEntry[],
+        [VersionEntry[]],
         { [index: string]: VersionEntry[] },
         Array<[string, VersionEntry[]]>,
         VersionEntry[]
@@ -1000,7 +1000,7 @@ export class PreAggregationLoader {
         R.map(p => p[1][0])
       )(versionEntries);
       const structureVersionsToSave = R.pipe<
-        VersionEntry[],
+        [VersionEntry[]],
         VersionEntry[],
         { [index: string]: VersionEntry[] },
         Array<[string, VersionEntry[]]>,

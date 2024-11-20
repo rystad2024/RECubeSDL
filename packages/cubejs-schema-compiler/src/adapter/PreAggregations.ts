@@ -4,7 +4,7 @@ import { CubeSymbols } from '../compiler/CubeSymbols';
 import { UserError } from '../compiler/UserError';
 import { BaseQuery } from './BaseQuery';
 import {
-  PreAggregationDefinition, PreAggregationDefinitions,
+  PreAggregationDefinition, PreAggregationDefinitions, PreAggregationDefinitionsExtended,
   PreAggregationReferences,
   PreAggregationTimeDimensionReference
 } from '../compiler/CubeEvaluator';
@@ -125,7 +125,7 @@ export class PreAggregations {
       !isInPreAggregationQuery ||
       isInPreAggregationQuery && this.query.options.useOriginalSqlPreAggregationsInPreAggregation) {
       return R.pipe<
-          string[],
+          [string[]],
           FullPreAggregationDescription[],
           FullPreAggregationDescription[],
           FullPreAggregationDescription[]
@@ -376,7 +376,11 @@ export class PreAggregations {
 
   public findPreAggregationToUseForCube(cube: string): PreAggregationForCube | null {
     const preAggregates = this.query.cubeEvaluator.preAggregationsForCube(cube);
-    const originalSqlPreAggregations = R.pipe(
+    const originalSqlPreAggregations = R.pipe<
+      [Record<string, PreAggregationDefinitionExtended>],
+      [string, PreAggregationDefinitionExtended][],
+      [string, PreAggregationDefinitionExtended][]
+    >(
       R.toPairs,
       R.filter(([, a]) => a.type === 'originalSql')
     )(preAggregates);
@@ -944,8 +948,13 @@ export class PreAggregations {
     )(query.collectCubeNames());
   }
 
-  private findRollupPreAggregationsForCube(cube: string, canUsePreAggregation: CanUsePreAggregationFn, preAggregations: PreAggregationDefinitions): PreAggregationForQuery[] {
-    return R.pipe(
+  private findRollupPreAggregationsForCube(cube: string, canUsePreAggregation: CanUsePreAggregationFn, preAggregations: PreAggregationDefinitionsExtended): PreAggregationForQuery[] {
+    return R.pipe<
+      [PreAggregationDefinitions],
+      [string, PreAggregationDefinitionExtended][],
+      [string, PreAggregationDefinitionExtended][],
+      PreAggregationForQuery[]
+    >(
       R.toPairs,
       // eslint-disable-next-line no-unused-vars
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -956,7 +965,12 @@ export class PreAggregations {
 
   public getRollupPreAggregationByName(cube, preAggregationName) {
     const canUsePreAggregation = () => true;
-    const preAggregation = R.pipe(
+    const preAggregation = R.pipe<
+      [Record<string, PreAggregationDefinitionExtended>],
+      [string, PreAggregationDefinitionExtended][],
+      [string, PreAggregationDefinitionExtended][],
+      [string, PreAggregationDefinitionExtended] | undefined
+    >(
       R.toPairs,
       R.filter(([_, a]) => a.type === 'rollup' || a.type === 'rollupJoin' || a.type === 'rollupLambda'),
       R.find(([k, _]) => k === preAggregationName)

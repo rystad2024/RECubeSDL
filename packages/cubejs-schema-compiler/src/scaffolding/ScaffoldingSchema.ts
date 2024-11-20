@@ -122,7 +122,7 @@ type ScaffoldingSchemaOptions = {
 };
 
 export class ScaffoldingSchema {
-  private tableNamesToTables: { [key: string]: TableData[] } = {};
+  private tableNamesToTables: Record<string, Array<TableData>> = {};
 
   public constructor(
     private readonly dbSchema: DatabaseSchema,
@@ -188,13 +188,20 @@ export class ScaffoldingSchema {
   }
 
   protected prepareTableNamesToTables(tableNames: TableName[]) {
-    this.tableNamesToTables = R.pipe(
-      // @ts-ignore
+    // This requires @types/ramda@0.29 or newer
+    // @ts-ignore
+    this.tableNamesToTables = R.pipe<
+      [Array<Array<[string, TableData]>>],
+      Array<[string, TableData]>,
+      Record<string, Array<[string, TableData]> | undefined>,
+      Record<string, Array<TableData>>
+    >(
       R.unnest,
       R.groupBy(n => n[0]),
-      R.map(groupedNameToDef => groupedNameToDef.map(nameToDef => nameToDef[1]))
-    )(
+      // This requires @types/ramda@0.29 or newer
       // @ts-ignore
+      R.map(groupedNameToDef => (groupedNameToDef ?? []).map(nameToDef => nameToDef[1]))
+    )(
       tableNames.map(tableName => {
         const [schema, table] = this.parseTableName(tableName);
         const tableDefinition = this.resolveTableDefinition(tableName);
@@ -207,7 +214,7 @@ export class ScaffoldingSchema {
         const names = R.uniq([table, tableizeName].concat(tableNamesFromParts));
         return names.map(n => [n, definition]);
       })
-    ) as any;
+    );
   }
 
   public resolveTableDefinition(tableName: TableName) {

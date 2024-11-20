@@ -112,6 +112,8 @@ export type PreAggregationDefinition = {
 
 export type PreAggregationDefinitions = Record<string, PreAggregationDefinition>;
 
+export type PreAggregationDefinitionsExtended = Record<string, PreAggregationDefinitionExtended>;
+
 export type PreAggregationTimeDimensionReference = {
   dimension: string,
   granularity: string,
@@ -557,7 +559,7 @@ export class CubeEvaluator extends CubeSymbols {
 
   public timeDimensionPathsForCube(cube: any) {
     return R.compose<
-      EvaluatedCubeDimensions,
+      [EvaluatedCubeDimensions],
       EvaluatedCubeDimensions,
       Array<string>,
       Array<string>
@@ -579,7 +581,7 @@ export class CubeEvaluator extends CubeSymbols {
     );
   }
 
-  public preAggregationsForCube(path: string): Record<string, PreAggregationDefinition> {
+  public preAggregationsForCube(path: string): Record<string, PreAggregationDefinitionExtended> {
     return this.cubeFromPath(path).preAggregations || {};
   }
 

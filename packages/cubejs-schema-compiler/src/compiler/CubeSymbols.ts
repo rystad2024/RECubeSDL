@@ -84,12 +84,13 @@ export class CubeSymbols {
   }
 
   public compile(cubes: CubeDefinition[], errorReporter: ErrorReporter) {
-    // @ts-ignore
-    this.cubeDefinitions = R.pipe(
-      // @ts-ignore
-      R.map((c: CubeDefinition) => [c.name, c]),
+    this.cubeDefinitions = R.pipe<
+      [CubeDefinition[]],
+      [string, CubeDefinition][],
+      Record<string, CubeDefinition>
+    >(
+      R.map(c => [c.name, c]),
       R.fromPairs
-      // @ts-ignore
     )(cubes);
     this.cubeList = cubes.map(c => (c.name ? this.getCubeDefinition(c.name) : this.createCube(c)));
     // TODO support actual dependency sorting to allow using views inside views
