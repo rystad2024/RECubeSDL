@@ -3,6 +3,7 @@ use crate::plan::QualifiedColumnName;
 use crate::planner::query_tools::QueryTools;
 use crate::planner::sql_evaluator::MemberSymbol;
 use crate::planner::sql_evaluator::SqlEvaluatorVisitor;
+use crate::planner::sql_templates::PlanSqlTemplates;
 use cubenativeutils::CubeError;
 use std::any::Any;
 use std::collections::HashMap;
@@ -33,21 +34,28 @@ impl SqlNode for RenderReferencesSqlNode {
         node: &Rc<MemberSymbol>,
         query_tools: Rc<QueryTools>,
         node_processor: Rc<dyn SqlNode>,
+        templates: &PlanSqlTemplates,
     ) -> Result<String, CubeError> {
         let full_name = node.full_name();
         if let Some(reference) = self.references.get(&full_name) {
-            let table_ref = reference.source().as_ref().map_or_else(
-                || format!(""),
-                |table_name| format!("{}.", query_tools.escape_column_name(table_name)),
-            );
+            let table_ref = if let Some(table_name) = reference.source() {
+                format!("{}.", templates.quote_identifier(table_name)?)
+            } else {
+                format!("")
+            };
             Ok(format!(
                 "{}{}",
                 table_ref,
-                query_tools.escape_column_name(&reference.name())
+                templates.quote_identifier(&reference.name())?
             ))
         } else {
-            self.input
-                .to_sql(visitor, node, query_tools.clone(), node_processor.clone())
+            self.input.to_sql(
+                visitor,
+                node,
+                query_tools.clone(),
+                node_processor.clone(),
+                templates,
+            )
         }
     }
 

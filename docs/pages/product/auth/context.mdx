@@ -1,8 +1,3 @@
----
-redirect_from:
-  - /security/context
----
-
 # Security context
 
 Your authentication server issues JWTs to your client application, which, when
@@ -30,6 +25,30 @@ inside:
   Cube configuration  file.
 - the [`COMPILE_CONTEXT`][ref-cubes-compile-ctx] global, which is used to
   support [multi-tenant deployments][link-multitenancy].
+
+## Contents
+
+By convention, the contents of the security context should be an object (dictionary)
+with nested structure:
+
+```json
+{
+  "sub": "1234567890",
+  "iat": 1516239022,
+  "user_name": "John Doe",
+  "user_id": 42,
+  "location": {
+    "city": "San Francisco",
+    "state": "CA"
+  }
+}
+```
+
+### Reserved elements
+
+Some features of Cube Cloud (e.g., [authentication integration][ref-auth-integration]
+and [LDAP integration][ref-ldap-integration]) use the `cubeCloud` element in the security context.
+This element is reserved and should not be used for other purposes.
 
 ## Using query_rewrite
 
@@ -140,7 +159,7 @@ const cubeToken = jwt.sign({ user_id: 42 }, CUBE_API_SECRET, {
 Using this token, we authorize our request to the Cube API by passing it in the
 Authorization HTTP header.
 
-```bash{outputLines: 2-5}
+```bash
 curl \
   -H "Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1Ijp7ImlkIjo0Mn0sImlhdCI6MTU1NjAyNTM1MiwiZXhwIjoxNTU4NjE3MzUyfQ._8QBL6nip6SkIrFzZzGq2nSF8URhl5BSSSGZYp7IJZ4" \
   -G \
@@ -223,7 +242,6 @@ def masked(sql, security_context):
     return "'--- masked ---'"
 ```
 
-
 ### Usage with pre-aggregations
 
 To generate pre-aggregations that rely on `COMPILE_CONTEXT`, [configure
@@ -237,14 +255,43 @@ to test access control rules. The [Developer
 Playground][ref-devtools-playground] allows you to set your own JWTs, or you can
 build one from a JSON object.
 
+## Enriching the security context
+
+Sometimes it is convenient to enrich the security context with additional attributes
+before it is used to evaluate access control rules.
+
+### Extending the security context
+
+You can use the [`extend_context`][ref-extend-context] configuration option to
+enrich the security context with additional attributes.
+
+### Authentication integration
+
+When using Cube Cloud, you can enrich the security context with information about
+an authenticated user, obtained during their authentication or loaded via an
+[LDAP integration][ref-ldap-integration].
+
+<SuccessBox>
+
+Authentication integration is available in Cube Cloud on [all product tiers](https://cube.dev/pricing).
+
+</SuccessBox>
+
+You can enable the authentication integration by navigating to the <Btn>Settings → Configuration</Btn>
+of your Cube Cloud deployment and using the <Btn>Enable Cloud Auth Integration</Btn> toggle.
+
+
 [link-auth0-jwks]:
   https://auth0.com/docs/tokens/json-web-tokens/json-web-key-sets
 [link-multitenancy]: /product/configuration/advanced/multitenancy
-[ref-config-queryrewrite]: /reference/configuration/config#query_rewrite
+[ref-config-queryrewrite]: /product/configuration/reference/config#query_rewrite
 [ref-config-sched-refresh]:
-  /reference/configuration/config#scheduledrefreshcontexts
-[ref-config-sec-ctx]: /reference/configuration/config#securitycontext
-[ref-schema-sec-ctx]: /reference/data-model/cube#security-context
-[ref-cubes-compile-ctx]: /reference/data-model/context-variables#compile_context
+  /product/configuration/reference/config#scheduledrefreshcontexts
+[ref-config-sec-ctx]: /product/configuration/reference/config#securitycontext
+[ref-schema-sec-ctx]: /product/data-modeling/reference/cube#security-context
+[ref-cubes-compile-ctx]: /product/data-modeling/reference/context-variables#compile_context
 [ref-devtools-playground]:
   /product/workspace/playground#editing-the-security-context
+[ref-auth-integration]: /product/auth#authentication-integration
+[ref-ldap-integration]: /product/workspace/sso#ldap-integration
+[ref-extend-context]: /product/configuration/reference/config#extend_context

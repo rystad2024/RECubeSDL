@@ -1,5 +1,5 @@
 use std::{
-    backtrace::Backtrace, collections::HashMap, io::ErrorKind, pin::Pin, sync::Arc,
+    backtrace::Backtrace, collections::HashMap, io::ErrorKind, pin::pin, pin::Pin, sync::Arc,
     time::SystemTime,
 };
 
@@ -22,7 +22,7 @@ use crate::{
     transport::{MetaContext, SpanId},
     CubeError,
 };
-use futures::{pin_mut, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt};
 use log::{debug, error, trace};
 use pg_srv::{
     buffer,
@@ -179,19 +179,19 @@ impl ConnectionError {
 
 impl From<CubeError> for ConnectionError {
     fn from(e: CubeError) -> Self {
-        ConnectionError::Cube(e.into(), None)
+        ConnectionError::Cube(e, None)
     }
 }
 
 impl From<CompilationError> for ConnectionError {
     fn from(e: CompilationError) -> Self {
-        ConnectionError::CompilationError(e.into(), None)
+        ConnectionError::CompilationError(e, None)
     }
 }
 
 impl From<ProtocolError> for ConnectionError {
     fn from(e: ProtocolError) -> Self {
-        ConnectionError::Protocol(e.into(), None)
+        ConnectionError::Protocol(e, None)
     }
 }
 
@@ -401,7 +401,7 @@ impl AsyncPostgresShim {
                             .log_load_state(
                                 span_id.clone(),
                                 auth_context,
-                                self.session.state.get_load_request_meta(),
+                                self.session.state.get_load_request_meta("sql"),
                                 "Load Request".to_string(),
                                 serde_json::json!({
                                     "query": span_id.as_ref().unwrap().query_key.clone(),
@@ -453,7 +453,7 @@ impl AsyncPostgresShim {
                                     .log_load_state(
                                         Some(span_id.clone()),
                                         auth_context,
-                                        self.session.state.get_load_request_meta(),
+                                        self.session.state.get_load_request_meta("sql"),
                                         "Data Query Status".to_string(),
                                         serde_json::json!({
                                             "isDataQuery": true
@@ -481,7 +481,7 @@ impl AsyncPostgresShim {
                                     .log_load_state(
                                         Some(span_id.clone()),
                                         auth_context.clone(),
-                                        self.session.state.get_load_request_meta(),
+                                        self.session.state.get_load_request_meta("sql"),
                                         "Data Query Status".to_string(),
                                         serde_json::json!({
                                             "isDataQuery": true,
@@ -496,7 +496,7 @@ impl AsyncPostgresShim {
                                     .log_load_state(
                                         Some(span_id.clone()),
                                         auth_context,
-                                        self.session.state.get_load_request_meta(),
+                                        self.session.state.get_load_request_meta("sql"),
                                         "Load Request Success".to_string(),
                                         serde_json::json!({
                                             "query": span_id.query_key.clone(),
@@ -602,7 +602,7 @@ impl AsyncPostgresShim {
                     .log_load_state(
                         Some(span_id.clone()),
                         auth_context,
-                        self.session.state.get_load_request_meta(),
+                        self.session.state.get_load_request_meta("sql"),
                         "SQL API Error".to_string(),
                         serde_json::json!({
                             "query": span_id.query_key.clone(),
@@ -803,7 +803,7 @@ impl AsyncPostgresShim {
             Ok((user, auth_context)) => {
                 let database = parameters
                     .get("database")
-                    .map(|v| v.clone())
+                    .cloned()
                     .unwrap_or("db".to_string());
                 self.session.state.set_database(Some(database));
                 self.session.state.set_user(Some(user));
@@ -972,7 +972,7 @@ impl AsyncPostgresShim {
 
                 let mut portal = Pin::new(portal);
                 let stream = portal.execute(execute.max_rows as usize);
-                pin_mut!(stream);
+                let mut stream = pin!(stream);
 
                 loop {
                     tokio::select! {
@@ -1056,7 +1056,7 @@ impl AsyncPostgresShim {
             )
         })?;
 
-        let format = body.result_formats.first().unwrap_or(&Format::Text).clone();
+        let format = body.result_formats.first().copied().unwrap_or(Format::Text);
         let portal = match source_statement {
             PreparedStatement::Empty { .. } => {
                 drop(statements_guard);
@@ -1745,7 +1745,7 @@ impl AsyncPostgresShim {
     ) -> Result<(), ConnectionError> {
         let mut portal = Pin::new(portal);
         let stream = portal.execute(max_rows);
-        pin_mut!(stream);
+        let mut stream = pin!(stream);
 
         loop {
             tokio::select! {
@@ -1792,8 +1792,7 @@ impl AsyncPostgresShim {
         let cache_entry = self.get_cache_entry().await?;
         let meta = self.session.server.compiler_cache.meta(cache_entry).await?;
 
-        let statements =
-            parse_sql_to_statements(&query.to_string(), DatabaseProtocol::PostgreSQL, qtrace)?;
+        let statements = parse_sql_to_statements(query, DatabaseProtocol::PostgreSQL, qtrace)?;
 
         if statements.len() == 0 {
             self.write(protocol::EmptyQuery::new()).await?;
@@ -1848,7 +1847,7 @@ impl AsyncPostgresShim {
                 .log_load_state(
                     span_id.clone(),
                     auth_context,
-                    self.session.state.get_load_request_meta(),
+                    self.session.state.get_load_request_meta("sql"),
                     "Load Request".to_string(),
                     serde_json::json!({
                         "query": {
@@ -1876,7 +1875,7 @@ impl AsyncPostgresShim {
                         .log_load_state(
                             Some(span_id.clone()),
                             auth_context,
-                            self.session.state.get_load_request_meta(),
+                            self.session.state.get_load_request_meta("sql"),
                             "Load Request Success".to_string(),
                             serde_json::json!({
                                 "query": {

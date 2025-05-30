@@ -147,6 +147,107 @@ describe('SQL API', () => {
 
       expect(rows).toBe(ROWS_LIMIT);
     });
+
+    describe('sql4sql', () => {
+      async function generateSql(query: string, disablePostPprocessing: boolean = false) {
+        const response = await fetch(`${birdbox.configuration.apiUrl}/sql`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: token,
+          },
+          body: JSON.stringify({
+            query,
+            format: 'sql',
+            disable_post_processing: disablePostPprocessing,
+          }),
+        });
+        const { status, statusText, headers } = response;
+        const body = await response.json();
+
+        // To stabilize responses
+        delete body.requestId;
+        headers.delete('date');
+        headers.delete('etag');
+
+        return {
+          status,
+          statusText,
+          headers,
+          body,
+        };
+      }
+
+      it('regular query', async () => {
+        expect(await generateSql('SELECT SUM(totalAmount) AS total FROM Orders;')).toMatchSnapshot();
+      });
+
+      it('regular query with missing column', async () => {
+        expect(await generateSql('SELECT SUM(foobar) AS total FROM Orders;')).toMatchSnapshot();
+      });
+
+      it('regular query with parameters', async () => {
+        expect(await generateSql('SELECT SUM(totalAmount) AS total FROM Orders WHERE status = \'foo\';')).toMatchSnapshot();
+      });
+
+      it('strictly post-processing', async () => {
+        expect(await generateSql('SELECT version();')).toMatchSnapshot();
+      });
+
+      it('strictly post-processing with disabled post-processing', async () => {
+        expect(await generateSql('SELECT version();', true)).toMatchSnapshot();
+      });
+
+      it('double aggregation post-processing', async () => {
+        expect(await generateSql(`
+          SELECT AVG(total)
+          FROM (
+            SELECT
+              status,
+              SUM(totalAmount) AS total
+            FROM Orders
+            GROUP BY 1
+          ) t
+        `)).toMatchSnapshot();
+      });
+
+      it('double aggregation post-processing with disabled post-processing', async () => {
+        expect(await generateSql(`
+          SELECT AVG(total)
+          FROM (
+            SELECT
+              status,
+              SUM(totalAmount) AS total
+            FROM Orders
+            GROUP BY 1
+          ) t
+        `, true)).toMatchSnapshot();
+      });
+
+      it('wrapper', async () => {
+        expect(await generateSql(`
+          SELECT
+            SUM(totalAmount) AS total
+          FROM Orders
+          WHERE LOWER(status) = UPPER(status)
+        `)).toMatchSnapshot();
+      });
+
+      it('wrapper with parameters', async () => {
+        expect(await generateSql(`
+          SELECT
+            SUM(totalAmount) AS total
+          FROM Orders
+          WHERE LOWER(status) = 'foo'
+        `)).toMatchSnapshot();
+      });
+
+      it('set variable', async () => {
+        expect(await generateSql(`
+          SET MyVariable = 'Foo'
+        `)).toMatchSnapshot();
+      });
+    });
   });
 
   describe('Postgres (Auth)', () => {
@@ -535,6 +636,64 @@ filter_subq AS (
       expect(res.rows).toMatchSnapshot('join grouped with filter');
     });
 
+    test('join with grouped query on coalesce', async () => {
+      const query = `
+        SELECT
+          "Orders".status AS status,
+          COUNT(*) AS count
+        FROM
+          "Orders"
+          INNER JOIN
+          (
+            SELECT
+              status,
+              SUM(totalAmount)
+            FROM
+              "Orders"
+            GROUP BY 1
+            ORDER BY 2 DESC
+            LIMIT 2
+          ) top_orders
+        ON
+          (COALESCE("Orders".status, '') = COALESCE(top_orders.status, '')) AND
+          (("Orders".status IS NOT NULL) = (top_orders.status IS NOT NULL))
+        GROUP BY 1
+        ORDER BY 1
+        `;
+
+      const res = await connection.query(query);
+      // Expect only top statuses 2 by total amount: processed and shipped
+      expect(res.rows).toMatchSnapshot('join grouped on coalesce');
+    });
+
+    test('join with grouped query and empty members', async () => {
+      const query = `
+        SELECT
+          top_orders.status
+        FROM
+          "Orders"
+          INNER JOIN
+          (
+            SELECT
+              status,
+              SUM(totalAmount)
+            FROM
+              "Orders"
+            GROUP BY 1
+            ORDER BY 2 DESC
+            LIMIT 2
+          ) top_orders
+        ON
+          "Orders".status = top_orders.status
+        GROUP BY 1
+        ORDER BY 1
+        `;
+
+      const res = await connection.query(query);
+      // Expect only top statuses 2 by total amount: processed and shipped
+      expect(res.rows).toMatchSnapshot('join grouped empty members');
+    });
+
     test('where segment is false', async () => {
       const query =
         'SELECT value AS val, * FROM "SegmentTest" WHERE segment_eq_1 IS FALSE ORDER BY value;';
@@ -629,6 +788,131 @@ filter_subq AS (
 
       const res = await connection.query(query);
       expect(res.rows).toMatchSnapshot('query-view-deep-joins');
+    });
+
+    test('wrapper with duplicated members', async () => {
+      const query = `
+        SELECT
+          "foo",
+          "bar",
+          CASE
+            WHEN "bar" = 'new'
+            THEN 1
+            ELSE 0
+            END
+            AS "bar_expr"
+        FROM (
+          SELECT
+            "rows"."foo" AS "foo",
+            "rows"."bar" AS "bar"
+          FROM (
+            SELECT
+              "status" AS "foo",
+              "status" AS "bar"
+            FROM Orders
+          ) "rows"
+          GROUP BY
+            "foo",
+            "bar"
+        ) "_"
+        ORDER BY
+          "bar_expr"
+          LIMIT 1
+        ;
+      `;
+
+      const res = await connection.query(query);
+      expect(res.rows).toMatchSnapshot('wrapper-duplicated-members');
+    });
+
+    test('measure with replaced aggregation', async () => {
+      const query = `
+        SELECT
+          MIN(totalAmount) AS min_amount
+        FROM
+          Orders
+      `;
+
+      const res = await connection.query(query);
+      expect(res.rows).toMatchSnapshot('measure-with-replaced-aggregation');
+    });
+
+    test('measure with replaced aggregation and original measure', async () => {
+      const query = `
+        SELECT
+          SUM(totalAmount) AS sum_amount,
+          MIN(totalAmount) AS min_amount
+        FROM
+          Orders
+      `;
+
+      const res = await connection.query(query);
+      expect(res.rows).toMatchSnapshot('measure-with-replaced-aggregation-and-original-measure');
+    });
+
+    test('measure with ad-hoc filter', async () => {
+      const query = `
+      SELECT
+        SUM(
+          CASE status = 'new'
+          WHEN TRUE
+          THEN totalAmount
+          ELSE NULL
+          END
+        ) AS new_amount
+      FROM
+        Orders
+      `;
+
+      const res = await connection.query(query);
+      expect(res.rows).toMatchSnapshot('measure-with-ad-hoc-filters');
+    });
+
+    test('measure with ad-hoc filter and original measure', async () => {
+      const query = `
+      SELECT
+        SUM(totalAmount) AS total_amount,
+        SUM(
+          CASE status = 'new'
+          WHEN TRUE
+          THEN totalAmount
+          ELSE NULL
+          END
+        ) AS new_amount
+      FROM
+        Orders
+      `;
+
+      const res = await connection.query(query);
+      expect(res.rows).toMatchSnapshot('measure-with-ad-hoc-filters-and-original-measure');
+    });
+
+    /// Query references `updatedAt` in three places: in outer projection, in grouping key and in window
+    /// Incoming query is consistent: all three references same column
+    /// This tests that generated SQL for pushdown remains consistent:
+    /// whatever is present in grouping key should be present in window expression
+    /// Interesting part here is that single column (and member expression) contains
+    /// two different TD, one with granularity and one without, and both have to match grouping key
+    test('member expression with granularity and raw time dimensions', async () => {
+      const query = `
+        SELECT
+          DATE_TRUNC('qtr', createdAt) AS quarter,
+          updatedAt,
+          SUM(CASE
+                WHEN sum(totalAmount) IS NOT NULL THEN sum(totalAmount)
+                ELSE 0
+          END) OVER (
+            PARTITION BY DATE_TRUNC('qtr', createdAt)
+            ORDER BY updatedAt
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) AS total
+        FROM Orders
+        GROUP BY
+          1, 2
+      `;
+
+      const res = await connection.query(query);
+      expect(res.rows).toMatchSnapshot();
     });
   });
 });

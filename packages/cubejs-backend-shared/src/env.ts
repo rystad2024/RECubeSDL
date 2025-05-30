@@ -170,6 +170,33 @@ const variables: Record<string, (...args: any) => any> = {
     // It's true by default for development
     return process.env.NODE_ENV !== 'production';
   },
+  scheduledRefreshQueriesPerAppId: () => {
+    const refreshQueries = get('CUBEJS_SCHEDULED_REFRESH_QUERIES_PER_APP_ID').asIntPositive();
+
+    if (refreshQueries) {
+      return refreshQueries;
+    }
+
+    const refreshConcurrency = get('CUBEJS_SCHEDULED_REFRESH_CONCURRENCY').asIntPositive();
+
+    if (refreshConcurrency) {
+      console.warn(
+        'The CUBEJS_SCHEDULED_REFRESH_CONCURRENCY is deprecated. Please, use the CUBEJS_SCHEDULED_REFRESH_QUERIES_PER_APP_ID instead.'
+      );
+    }
+
+    return refreshConcurrency;
+  },
+  refreshWorkerConcurrency: () => get('CUBEJS_REFRESH_WORKER_CONCURRENCY')
+    .asIntPositive(),
+  // eslint-disable-next-line consistent-return
+  scheduledRefreshTimezones: () => {
+    const timezones = get('CUBEJS_SCHEDULED_REFRESH_TIMEZONES').asString();
+
+    if (timezones) {
+      return timezones.split(',').map(t => t.trim());
+    }
+  },
   preAggregationsBuilder: () => get('CUBEJS_PRE_AGGREGATIONS_BUILDER').asBool(),
   gracefulShutdown: () => get('CUBEJS_GRACEFUL_SHUTDOWN')
     .asIntPositive(),
@@ -192,8 +219,21 @@ const variables: Record<string, (...args: any) => any> = {
   scheduledRefreshBatchSize: () => get('CUBEJS_SCHEDULED_REFRESH_BATCH_SIZE')
     .default('1')
     .asInt(),
-  nativeSqlPlanner: () => get('CUBEJS_TESSERACT_SQL_PLANNER').asBool(),
+  nativeSqlPlanner: () => get('CUBEJS_TESSERACT_SQL_PLANNER').default('false').asBool(),
   nativeOrchestrator: () => get('CUBEJS_TESSERACT_ORCHESTRATOR')
+    .default('true')
+    .asBoolStrict(),
+  transpilationWorkerThreads: () => get('CUBEJS_TRANSPILATION_WORKER_THREADS')
+    .default('false')
+    .asBoolStrict(),
+  allowNonStrictDateRangeMatching: () => get('CUBEJS_PRE_AGGREGATIONS_ALLOW_NON_STRICT_DATE_RANGE_MATCH')
+    .default('true')
+    .asBoolStrict(),
+  transpilationWorkerThreadsCount: () => get('CUBEJS_TRANSPILATION_WORKER_THREADS_COUNT')
+    .default('0')
+    .asInt(),
+  // This one takes precedence over CUBEJS_TRANSPILATION_WORKER_THREADS
+  transpilationNative: () => get('CUBEJS_TRANSPILATION_NATIVE')
     .default('false')
     .asBoolStrict(),
 
@@ -914,10 +954,17 @@ const variables: Record<string, (...args: any) => any> = {
   /**
    * Accept Databricks policy flag. This environment variable doesn't
    * need to be split by the data source.
+   * TODO: Tech-debt: Remove totally someday
    */
-  databrickAcceptPolicy: () => (
-    get('CUBEJS_DB_DATABRICKS_ACCEPT_POLICY').asBoolStrict()
-  ),
+  databrickAcceptPolicy: () => {
+    const val = get('CUBEJS_DB_DATABRICKS_ACCEPT_POLICY').asBoolStrict();
+
+    if (val !== undefined) {
+      console.warn(
+        'The CUBEJS_DB_DATABRICKS_ACCEPT_POLICY is not needed anymore. Please, remove it'
+      );
+    }
+  },
 
   /**
    * Databricks jdbc-connection url.
@@ -1127,9 +1174,22 @@ const variables: Record<string, (...args: any) => any> = {
   }: {
     dataSource: string,
   }) => (
-    process.env[
-      keyByDataSource('CUBEJS_DB_CLICKHOUSE_READONLY', dataSource)
-    ]
+    get(keyByDataSource('CUBEJS_DB_CLICKHOUSE_READONLY', dataSource))
+      .default('false')
+      .asBool()
+  ),
+
+  /**
+   * ClickHouse compression flag.
+   */
+  clickhouseCompression: ({
+    dataSource
+  }: {
+    dataSource: string,
+  }) => (
+    get(keyByDataSource('CUBEJS_DB_CLICKHOUSE_COMPRESSION', dataSource))
+      .default('false')
+      .asBool()
   ),
 
   /** ****************************************************************
@@ -1713,6 +1773,19 @@ const variables: Record<string, (...args: any) => any> = {
     }
     return [];
   },
+  duckdbCommunityExtensions: ({
+    dataSource
+  }: {
+    dataSource: string,
+  }) => {
+    const extensions = process.env[
+      keyByDataSource('CUBEJS_DB_DUCKDB_COMMUNITY_EXTENSIONS', dataSource)
+    ];
+    if (extensions) {
+      return extensions.split(',').map(e => e.trim());
+    }
+    return [];
+  },
   /** ***************************************************************
    * Presto Driver                                                  *
    **************************************************************** */
@@ -1746,6 +1819,35 @@ const variables: Record<string, (...args: any) => any> = {
       keyByDataSource('CUBEJS_DB_PINOT_AUTH_TOKEN', dataSource)
     ]
   ),
+
+  /**
+   * Pinot / Startree Null value support
+   */
+
+  pinotNullHandling: ({ dataSource }: { dataSource: string }) => {
+    const val = process.env[
+      keyByDataSource('CUBEJS_DB_PINOT_NULL_HANDLING', dataSource)
+    ];
+
+    if (val) {
+      if (val.toLocaleLowerCase() === 'true') {
+        return true;
+      } else if (val.toLowerCase() === 'false') {
+        return false;
+      } else {
+        throw new TypeError(
+          `The ${
+            keyByDataSource(
+              'CUBEJS_DB_PINOT_NULL_HANDLING',
+              dataSource,
+            )
+          } must be either 'true' or 'false'.`
+        );
+      }
+    } else {
+      return false;
+    }
+  },
 
   /** ****************************************************************
    * Dremio Driver                                                   *
@@ -1926,6 +2028,9 @@ const variables: Record<string, (...args: any) => any> = {
 
     return undefined;
   },
+  fastReload: () => get('CUBEJS_FAST_RELOAD_ENABLED')
+    .default('false')
+    .asBoolStrict(),
 };
 
 type Vars = typeof variables;

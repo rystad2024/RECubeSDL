@@ -4,24 +4,22 @@ use crate::cube_bridge::base_tools::BaseTools;
 use crate::cube_bridge::evaluator::CubeEvaluator;
 use crate::cube_bridge::join_definition::JoinDefinition;
 use crate::cube_bridge::join_graph::JoinGraph;
+use crate::cube_bridge::join_hints::JoinHintItem;
 use crate::cube_bridge::join_item::JoinItemStatic;
 use crate::cube_bridge::sql_templates_render::SqlTemplatesRender;
 use crate::plan::FilterItem;
 use crate::planner::sql_evaluator::collectors::collect_join_hints;
 use crate::planner::sql_templates::PlanSqlTemplates;
 use chrono_tz::Tz;
-use convert_case::{Case, Casing};
 use cubenativeutils::CubeError;
 use itertools::Itertools;
-use lazy_static::lazy_static;
-use regex::Regex;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 pub struct QueryToolsCachedData {
-    join_hints: HashMap<String, Rc<Vec<String>>>,
-    join_hints_to_join_key: HashMap<Vec<Rc<Vec<String>>>, Rc<JoinKey>>,
+    join_hints: HashMap<String, Rc<Vec<JoinHintItem>>>,
+    join_hints_to_join_key: HashMap<Vec<Rc<Vec<JoinHintItem>>>, Rc<JoinKey>>,
     join_key_to_join: HashMap<Rc<JoinKey>, Rc<dyn JoinDefinition>>,
 }
 
@@ -43,7 +41,7 @@ impl QueryToolsCachedData {
     pub fn join_hints_for_member(
         &mut self,
         node: &Rc<MemberSymbol>,
-    ) -> Result<Rc<Vec<String>>, CubeError> {
+    ) -> Result<Rc<Vec<JoinHintItem>>, CubeError> {
         let full_name = node.full_name();
         if let Some(val) = self.join_hints.get(&full_name) {
             Ok(val.clone())
@@ -57,7 +55,7 @@ impl QueryToolsCachedData {
     pub fn join_hints_for_base_member_vec<T: BaseMember>(
         &mut self,
         vec: &Vec<Rc<T>>,
-    ) -> Result<Vec<Rc<Vec<String>>>, CubeError> {
+    ) -> Result<Vec<Rc<Vec<JoinHintItem>>>, CubeError> {
         vec.iter()
             .map(|b| self.join_hints_for_member(&b.member_evaluator()))
             .collect::<Result<Vec<_>, _>>()
@@ -66,7 +64,7 @@ impl QueryToolsCachedData {
     pub fn join_hints_for_member_symbol_vec(
         &mut self,
         vec: &Vec<Rc<MemberSymbol>>,
-    ) -> Result<Vec<Rc<Vec<String>>>, CubeError> {
+    ) -> Result<Vec<Rc<Vec<JoinHintItem>>>, CubeError> {
         vec.iter()
             .map(|b| self.join_hints_for_member(b))
             .collect::<Result<Vec<_>, _>>()
@@ -75,7 +73,7 @@ impl QueryToolsCachedData {
     pub fn join_hints_for_filter_item_vec(
         &mut self,
         vec: &Vec<FilterItem>,
-    ) -> Result<Vec<Rc<Vec<String>>>, CubeError> {
+    ) -> Result<Vec<Rc<Vec<JoinHintItem>>>, CubeError> {
         let mut member_symbols = Vec::new();
         for i in vec.iter() {
             i.find_all_member_evaluators(&mut member_symbols);
@@ -88,8 +86,8 @@ impl QueryToolsCachedData {
 
     pub fn join_by_hints(
         &mut self,
-        hints: Vec<Rc<Vec<String>>>,
-        join_fn: impl FnOnce(Vec<String>) -> Result<Rc<dyn JoinDefinition>, CubeError>,
+        hints: Vec<Rc<Vec<JoinHintItem>>>,
+        join_fn: impl FnOnce(Vec<JoinHintItem>) -> Result<Rc<dyn JoinDefinition>, CubeError>,
     ) -> Result<(Rc<JoinKey>, Rc<dyn JoinDefinition>), CubeError> {
         if let Some(key) = self.join_hints_to_join_key.get(&hints) {
             Ok((key.clone(), self.join_key_to_join.get(key).unwrap().clone()))
@@ -104,7 +102,6 @@ impl QueryToolsCachedData {
                 root: join.static_data().root.to_string(),
                 joins: join
                     .joins()?
-                    .items()
                     .iter()
                     .map(|i| i.static_data().clone())
                     .collect(),
@@ -124,7 +121,7 @@ pub struct QueryTools {
     params_allocator: Rc<RefCell<ParamsAllocator>>,
     evaluator_compiler: Rc<RefCell<Compiler>>,
     cached_data: RefCell<QueryToolsCachedData>,
-    timezone: Option<Tz>,
+    timezone: Tz,
 }
 
 impl QueryTools {
@@ -133,25 +130,30 @@ impl QueryTools {
         base_tools: Rc<dyn BaseTools>,
         join_graph: Rc<dyn JoinGraph>,
         timezone_name: Option<String>,
+        export_annotated_sql: bool,
     ) -> Result<Rc<Self>, CubeError> {
         let templates_render = base_tools.sql_templates()?;
-        let evaluator_compiler = Rc::new(RefCell::new(Compiler::new(cube_evaluator.clone())));
         let timezone = if let Some(timezone) = timezone_name {
-            Some(
-                timezone
-                    .parse::<Tz>()
-                    .map_err(|_| CubeError::user(format!("Incorrect timezone {}", timezone)))?,
-            )
+            timezone
+                .parse::<Tz>()
+                .map_err(|_| CubeError::user(format!("Incorrect timezone {}", timezone)))?
         } else {
-            None
+            Tz::UTC
         };
-        let sql_templates = PlanSqlTemplates::new(templates_render.clone());
+        let evaluator_compiler = Rc::new(RefCell::new(Compiler::new(
+            cube_evaluator.clone(),
+            timezone.clone(),
+        )));
+        let sql_templates = PlanSqlTemplates::new(templates_render.clone(), base_tools.clone());
         Ok(Rc::new(Self {
             cube_evaluator,
             base_tools,
             join_graph,
             templates_render,
-            params_allocator: Rc::new(RefCell::new(ParamsAllocator::new(sql_templates))),
+            params_allocator: Rc::new(RefCell::new(ParamsAllocator::new(
+                sql_templates,
+                export_annotated_sql,
+            ))),
             evaluator_compiler,
             cached_data: RefCell::new(QueryToolsCachedData::new()),
             timezone,
@@ -162,6 +164,10 @@ impl QueryTools {
         &self.cube_evaluator
     }
 
+    pub fn plan_sql_templates(&self) -> PlanSqlTemplates {
+        PlanSqlTemplates::new(self.templates_render.clone(), self.base_tools.clone())
+    }
+
     pub fn base_tools(&self) -> &Rc<dyn BaseTools> {
         &self.base_tools
     }
@@ -170,8 +176,8 @@ impl QueryTools {
         &self.join_graph
     }
 
-    pub fn timezone(&self) -> &Option<Tz> {
-        &self.timezone
+    pub fn timezone(&self) -> Tz {
+        self.timezone
     }
 
     pub fn cached_data(&self) -> Ref<'_, QueryToolsCachedData> {
@@ -187,11 +193,7 @@ impl QueryTools {
     }
 
     pub fn alias_name(&self, name: &str) -> String {
-        name.to_case(Case::Snake).replace(".", "__")
-    }
-
-    pub fn escaped_alias_name(&self, name: &str) -> String {
-        self.escape_column_name(&self.alias_name(name))
+        PlanSqlTemplates::alias_name(name)
     }
 
     pub fn cube_alias_name(&self, name: &str, prefix: &Option<String>) -> String {
@@ -214,23 +216,14 @@ impl QueryTools {
         }
     }
 
-    pub fn auto_prefix_with_cube_name(&self, cube_name: &str, sql: &str) -> String {
-        lazy_static! {
-            static ref SINGLE_MEMBER_RE: Regex = Regex::new(r"^[_a-zA-Z][_a-zA-Z0-9]*$").unwrap();
-        }
-        if SINGLE_MEMBER_RE.is_match(sql) {
-            format!(
-                "{}.{}",
-                self.escape_column_name(&self.cube_alias_name(&cube_name, &None)),
-                sql
-            )
+    pub fn alias_for_cube(&self, cube_name: &String) -> Result<String, CubeError> {
+        let cube_definition = self.cube_evaluator().cube_from_path(cube_name.clone())?;
+        let res = if let Some(sql_alias) = &cube_definition.static_data().sql_alias {
+            sql_alias.clone()
         } else {
-            sql.to_string()
-        }
-    }
-
-    pub fn escape_column_name(&self, column_name: &str) -> String {
-        format!("\"{}\"", column_name)
+            cube_name.clone()
+        };
+        Ok(res)
     }
 
     pub fn templates_render(&self) -> Rc<dyn SqlTemplatesRender> {

@@ -1,7 +1,7 @@
 import crypto from 'crypto';
-import R from 'ramda';
 import { createQuery, compile, queryClass, PreAggregations, QueryFactory } from '@cubejs-backend/schema-compiler';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, parse as uuidParse } from 'uuid';
+import { LRUCache } from 'lru-cache';
 import { NativeInstance } from '@cubejs-backend/native';
 
 export class CompilerApi {
@@ -29,6 +29,25 @@ export class CompilerApi {
     this.sqlCache = options.sqlCache;
     this.standalone = options.standalone;
     this.nativeInstance = this.createNativeInstance();
+    this.compiledScriptCache = new LRUCache({
+      max: options.compilerCacheSize || 250,
+      ttl: options.maxCompilerCacheKeepAlive,
+      updateAgeOnGet: options.updateCompilerCacheKeepAlive
+    });
+
+    // proactively free up old cache values occasionally
+    if (this.options.maxCompilerCacheKeepAlive) {
+      this.compiledScriptCacheInterval = setInterval(
+        () => this.compiledScriptCache.purgeStale(),
+        this.options.maxCompilerCacheKeepAlive
+      );
+    }
+  }
+
+  dispose() {
+    if (this.compiledScriptCacheInterval) {
+      clearInterval(this.compiledScriptCacheInterval);
+    }
   }
 
   setGraphQLSchema(schema) {
@@ -53,7 +72,7 @@ export class CompilerApi {
       compilerVersion = JSON.stringify(compilerVersion);
     }
 
-    if (this.options.devServer) {
+    if (this.options.devServer || this.options.fastReload) {
       const files = await this.repository.dataSchemaFiles();
       compilerVersion += `_${crypto.createHash('md5').update(JSON.stringify(files)).digest('hex')}`;
     }
@@ -83,6 +102,7 @@ export class CompilerApi {
         allowJsDuplicatePropsInSchema: this.allowJsDuplicatePropsInSchema,
         standalone: this.standalone,
         nativeInstance: this.nativeInstance,
+        compiledScriptCache: this.compiledScriptCache,
       });
       this.queryFactory = await this.createQueryFactory(compilers);
 
@@ -107,9 +127,9 @@ export class CompilerApi {
   async createQueryFactory(compilers) {
     const { cubeEvaluator } = compilers;
 
-    const cubeToQueryClass = R.fromPairs(
+    const cubeToQueryClass = Object.fromEntries(
       await Promise.all(
-        cubeEvaluator.cubeNames().map(async cube => {
+        cubeEvaluator.cubeNames().map(async (cube) => {
           const dataSource = cubeEvaluator.cubeFromPath(cube).dataSource ?? 'default';
           const dbType = await this.getDbType(dataSource);
           const dialectClass = this.getDialectClass(dataSource, dbType);
@@ -125,7 +145,7 @@ export class CompilerApi {
   }
 
   getDialectClass(dataSource = 'default', dbType) {
-    return this.dialectClass && this.dialectClass({ dataSource, dbType });
+    return this.dialectClass?.({ dataSource, dbType });
   }
 
   async getSqlGenerator(query, dataSource) {
@@ -137,19 +157,26 @@ export class CompilerApi {
       throw new Error(`Unknown dbType: ${dbType}`);
     }
 
+    // sqlGenerator.dataSource can return undefined for query without members
+    // Queries like this are used by api-gateway to initialize SQL API
+    // At the same time, those queries should use concrete dataSource, so we should be good to go with it
     dataSource = compilers.compiler.withQuery(sqlGenerator, () => sqlGenerator.dataSource);
-    const _dbType = await this.getDbType(dataSource);
-    if (dataSource !== 'default' && dbType !== _dbType) {
-      // TODO consider more efficient way than instantiating query
-      sqlGenerator = await this.createQueryByDataSource(
-        compilers,
-        query,
-        dataSource,
-        _dbType
-      );
+    if (dataSource !== undefined) {
+      const _dbType = await this.getDbType(dataSource);
+      if (dataSource !== 'default' && dbType !== _dbType) {
+        // TODO consider more efficient way than instantiating query
+        sqlGenerator = await this.createQueryByDataSource(
+          compilers,
+          query,
+          dataSource,
+          _dbType
+        );
 
-      if (!sqlGenerator) {
-        throw new Error(`Can't find dialect for '${dataSource}' data source: ${_dbType}`);
+        if (!sqlGenerator) {
+          throw new Error(
+            `Can't find dialect for '${dataSource}' data source: ${_dbType}`
+          );
+        }
       }
     }
 
@@ -164,8 +191,8 @@ export class CompilerApi {
       external: sqlGenerator.externalPreAggregationQuery(),
       sql: sqlGenerator.buildSqlAndParams(exportAnnotatedSql),
       lambdaQueries: sqlGenerator.buildLambdaQuery(),
-      timeDimensionAlias: sqlGenerator.timeDimensions[0] && sqlGenerator.timeDimensions[0].unescapedAliasName(),
-      timeDimensionField: sqlGenerator.timeDimensions[0] && sqlGenerator.timeDimensions[0].dimension,
+      timeDimensionAlias: sqlGenerator.timeDimensions[0]?.unescapedAliasName(),
+      timeDimensionField: sqlGenerator.timeDimensions[0]?.dimension,
       order: sqlGenerator.order,
       cacheKeyQueries: sqlGenerator.cacheKeyQueries(),
       preAggregations: sqlGenerator.preAggregations.preAggregationsDescription(),
@@ -199,7 +226,7 @@ export class CompilerApi {
   }
 
   roleMeetsConditions(evaluatedConditions) {
-    if (evaluatedConditions && evaluatedConditions.length) {
+    if (evaluatedConditions?.length) {
       return evaluatedConditions.reduce((a, b) => {
         if (typeof b !== 'boolean') {
           throw new Error(`Access policy condition must return boolean, got ${JSON.stringify(b)}`);
@@ -245,7 +272,7 @@ export class CompilerApi {
     if (filter.memberReference) {
       const evaluatedValues = cubeEvaluator.evaluateContextFunction(
         cube,
-        filter.values,
+        filter.values || (() => undefined),
         context
       );
       result.member = filter.memberReference;
@@ -332,9 +359,23 @@ export class CompilerApi {
       viewFiltersPerCubePerRole,
       hasAllowAllForCube
     );
-    query.filters = query.filters || [];
-    query.filters.push(rlsFilter);
+    if (rlsFilter) {
+      query.filters = query.filters || [];
+      query.filters.push(rlsFilter);
+    }
     return { query, denied: false };
+  }
+
+  removeEmptyFilters(filter) {
+    if (filter?.and) {
+      const and = filter.and.map(f => this.removeEmptyFilters(f)).filter(f => f);
+      return and.length > 1 ? { and } : and.at(0) || null;
+    }
+    if (filter?.or) {
+      const or = filter.or.map(f => this.removeEmptyFilters(f)).filter(f => f);
+      return or.length > 1 ? { or } : or.at(0) || null;
+    }
+    return filter;
   }
 
   buildFinalRlsFilter(cubeFiltersPerCubePerRole, viewFiltersPerCubePerRole, hasAllowAllForCube) {
@@ -362,7 +403,7 @@ export class CompilerApi {
       {}
     );
 
-    return {
+    return this.removeEmptyFilters({
       and: [{
         or: Object.keys(cubeFiltersPerRole).map(role => ({
           and: cubeFiltersPerRole[role]
@@ -372,7 +413,7 @@ export class CompilerApi {
           and: viewFiltersPerRole[role]
         }))
       }]
-    };
+    });
   }
 
   async compilerCacheFn(requestId, key, path) {
@@ -384,6 +425,11 @@ export class CompilerApi {
     }
   }
 
+  /**
+   *
+   * @param {unknown} filter
+   * @returns {Promise<Array<PreAggregationInfo>>}
+   */
   async preAggregations(filter) {
     const { cubeEvaluator } = await this.getCompilers();
     return cubeEvaluator.preAggregations(filter);
@@ -428,7 +474,7 @@ export class CompilerApi {
     const { cubeEvaluator } = compilers;
 
     if (!cubeEvaluator.isRbacEnabled()) {
-      return cubes;
+      return { cubes, visibilityMaskHash: null };
     }
 
     for (const cube of cubes) {
@@ -481,23 +527,38 @@ export class CompilerApi {
       });
     };
 
-    return cubes
-      .map((cube) => ({
-        config: {
-          ...cube.config,
-          measures: cube.config.measures?.map(visibilityPatcherForCube(cube)),
-          dimensions: cube.config.dimensions?.map(visibilityPatcherForCube(cube)),
-          segments: cube.config.segments?.map(visibilityPatcherForCube(cube)),
-          hierarchies: cube.config.hierarchies?.map(visibilityPatcherForCube(cube)),
-        },
-      }));
+    const visibiliyMask = JSON.stringify(isMemberVisibleInContext, Object.keys(isMemberVisibleInContext).sort());
+    // This hash will be returned along the modified meta config and can be used
+    // to distinguish between different "schema versions" after DAP visibility is applied
+    const visibilityMaskHash = crypto.createHash('sha256').update(visibiliyMask).digest('hex');
+
+    return {
+      cubes: cubes
+        .map((cube) => ({
+          config: {
+            ...cube.config,
+            measures: cube.config.measures?.map(visibilityPatcherForCube(cube)),
+            dimensions: cube.config.dimensions?.map(visibilityPatcherForCube(cube)),
+            segments: cube.config.segments?.map(visibilityPatcherForCube(cube)),
+            hierarchies: cube.config.hierarchies?.map(visibilityPatcherForCube(cube)),
+          },
+        })),
+      visibilityMaskHash
+    };
+  }
+
+  mixInVisibilityMaskHash(compilerId, visibilityMaskHash) {
+    const uuidBytes = uuidParse(compilerId);
+    const hashBytes = Buffer.from(visibilityMaskHash, 'hex');
+    return uuidv4({ random: crypto.createHash('sha256').update(uuidBytes).update(hashBytes).digest()
+      .subarray(0, 16) });
   }
 
   async metaConfig(requestContext, options = {}) {
     const { includeCompilerId, ...restOptions } = options;
     const compilers = await this.getCompilers(restOptions);
     const { cubes } = compilers.metaTransformer;
-    const patchedCubes = await this.patchVisibilityByAccessPolicy(
+    const { visibilityMaskHash, cubes: patchedCubes } = await this.patchVisibilityByAccessPolicy(
       compilers,
       requestContext,
       cubes
@@ -505,7 +566,11 @@ export class CompilerApi {
     if (includeCompilerId) {
       return {
         cubes: patchedCubes,
-        compilerId: compilers.compilerId,
+        // This compilerId is primarily used by the cubejs-backend-native or caching purposes.
+        // By default it doesn't account for member visibility changes introduced above by DAP.
+        // Here we're modifying the originila compilerId in a way that it's distinct for
+        // distinct schema versions while still being a valid UUID.
+        compilerId: visibilityMaskHash ? this.mixInVisibilityMaskHash(compilers.compilerId, visibilityMaskHash) : compilers.compilerId,
       };
     }
     return patchedCubes;
@@ -513,7 +578,7 @@ export class CompilerApi {
 
   async metaConfigExtended(requestContext, options) {
     const compilers = await this.getCompilers(options);
-    const patchedCubes = await this.patchVisibilityByAccessPolicy(
+    const { cubes: patchedCubes } = await this.patchVisibilityByAccessPolicy(
       compilers,
       requestContext,
       compilers.metaTransformer?.cubes
@@ -535,6 +600,34 @@ export class CompilerApi {
       .map(
         (cube) => ({ [cube]: cubeEvaluator.cubeFromPath(cube).dataSource || 'default' })
       ).reduce((a, b) => ({ ...a, ...b }), {});
+  }
+
+  async memberToDataSource(query) {
+    const { cubeEvaluator } = await this.getCompilers({ requestId: query.requestId });
+
+    const entries = cubeEvaluator
+      .cubeNames()
+      .flatMap(cube => {
+        const cubeDef = cubeEvaluator.cubeFromPath(cube);
+        if (cubeDef.isView) {
+          const viewName = cubeDef.name;
+          return cubeDef.includedMembers.map(included => {
+            const memberName = `${viewName}.${included.name}`;
+            const refCubeDef = cubeEvaluator.cubeFromPath(included.memberPath);
+            const dataSource = refCubeDef.dataSource ?? 'default';
+            return [memberName, dataSource];
+          });
+        } else {
+          const cubeName = cubeDef.name;
+          const dataSource = cubeDef.dataSource ?? 'default';
+          return [
+            ...Object.keys(cubeDef.dimensions),
+            ...Object.keys(cubeDef.measures),
+            ...Object.keys(cubeDef.segments),
+          ].map(mem => [`${cubeName}.${mem}`, dataSource]);
+        }
+      });
+    return Object.fromEntries(entries);
   }
 
   async dataSources(orchestratorApi, query) {

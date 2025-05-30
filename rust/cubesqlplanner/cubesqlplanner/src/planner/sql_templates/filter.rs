@@ -61,6 +61,22 @@ impl FilterTemplates {
         )
     }
 
+    pub fn time_not_in_range_filter(
+        &self,
+        column: String,
+        from_timestamp: String,
+        to_timestamp: String,
+    ) -> Result<String, CubeError> {
+        self.render.render_template(
+            &"filters/time_not_in_range_filter",
+            context! {
+                column => column,
+                from_timestamp => from_timestamp,
+                to_timestamp => to_timestamp,
+            },
+        )
+    }
+
     pub fn in_where(
         &self,
         column: String,
@@ -104,26 +120,6 @@ impl FilterTemplates {
         )
     }
 
-    pub fn add_interval(&self, date: String, interval: String) -> Result<String, CubeError> {
-        self.render.render_template(
-            &"expressions/add_interval",
-            context! {
-                date => date,
-                interval => interval
-            },
-        )
-    }
-
-    pub fn sub_interval(&self, date: String, interval: String) -> Result<String, CubeError> {
-        self.render.render_template(
-            &"expressions/sub_interval",
-            context! {
-                date => date,
-                interval => interval
-            },
-        )
-    }
-
     pub fn set_where(&self, column: String) -> Result<String, CubeError> {
         self.render.render_template(
             &"filters/set_where",
@@ -150,6 +146,10 @@ impl FilterTemplates {
                 param => param
             },
         )
+    }
+
+    pub fn always_true(&self) -> Result<String, CubeError> {
+        Ok(self.render.get_template("filters/always_true")?.clone())
     }
 
     pub fn gte(&self, column: String, param: String) -> Result<String, CubeError> {
@@ -207,7 +207,7 @@ impl FilterTemplates {
             },
         )?;
         self.render.render_template(
-            &"expressions/ilike",
+            &"tesseract/ilike",
             context! {
                 expr => column,
                 negated => not,

@@ -1,10 +1,3 @@
----
-redirect_from:
-  - /polymorphic-cubes
-  - /recipes/polymorphic-cubes
-  - /schema/advanced/polymorphic-cubes
----
-
 # Polymorphic cubes
 
 In programming languages, polymorphism usually means the use of a single symbol
@@ -90,6 +83,8 @@ cube(`users`, {
 
 Then you can derive the `teachers` and `students` cubes from `users`:
 
+<CodeTabs>
+
 ```javascript
 cube(`teachers`, {
   extends: users,
@@ -110,16 +105,24 @@ cube(`students`, {
 });
 ```
 
-<ReferenceBox>
+```yaml
+cubes:
+  - name: teachers
+    extends: users
+    sql: >
+      SELECT *
+      FROM {users.sql()}
+      WHERE type = 'teacher'
 
-Currently, [`{cube.sql()}` function][ref-cube-sql-func] is not supported in YAML data models.
-Please [track this issue](https://github.com/cube-js/cube/issues/7484).
+  - name: students
+    extends: users
+    sql: >
+      SELECT *
+      FROM {users.sql()}
+      WHERE type = 'student'
+```
 
-As a workaround, you can use JavaScript data models, put a SQL query in a
-[Jinja](/product/data-modeling/dynamic/jinja#jinja) variable, or load it from
-the [template context](/reference/python/cube#templatecontext-class).
-
-</ReferenceBox>
+</CodeTabs>
 
 Once we have those cubes, we can define correct joins from the `lessons` cube:
 
@@ -162,6 +165,6 @@ cube(`lessons`, {
 
 [ref-schema-advanced-extend]:
   /product/data-modeling/concepts/code-reusability-extending-cubes
-[ref-schema-ref-cubes-extends]: /reference/data-model/cube#extends
+[ref-schema-ref-cubes-extends]: /product/data-modeling/reference/cube#extends
 
 [ref-cube-sql-func]: /product/data-modeling/syntax#cubesql-function

@@ -2,14 +2,6 @@
 import { ordersCountQuery } from "../queries";
 
 context("Playground: Rollup Designer", () => {
-  beforeEach(() => {
-    cy.restoreLocalStorage();
-  });
-
-  afterEach(() => {
-    cy.saveLocalStorage();
-  });
-
   describe("Opens the Rollup Designer modal", () => {
     it("opens the Rollup Designer without running a query", () => {
       cy.setQuery(ordersCountQuery);
@@ -70,8 +62,14 @@ context("Playground: Rollup Designer", () => {
       cy.getByTestId("prism-code").should("contain.text", "main: ");
       cy.getByTestId("rd-input-every").clear().type("3");
       cy.getByTestId("rd-select-every-granularity")
+        // This crazy chain of commands is needed to avoid crashing
         .find("input")
-        .type("Day{enter}", { force: true });
+        .focus({ force: true })
+        .wait(500)
+        .click({ force: true })
+        .wait(500)
+        .type("Day{enter}", { force: true })
+        .wait(500);
       cy.getByTestId("prism-code").should("contain.text", "every: `3 day`");
       cy.getByTestId("rd-add-btn")
         .should("be.visible")

@@ -16,10 +16,10 @@ impl MemberExpression {
 
     pub fn to_sql(
         &self,
-        _templates: &PlanSqlTemplates,
+        templates: &PlanSqlTemplates,
         context: Rc<VisitorContext>,
     ) -> Result<String, CubeError> {
-        self.member.to_sql(context)
+        self.member.to_sql(context, templates)
     }
 }
 
@@ -34,6 +34,7 @@ pub enum Expr {
     Member(MemberExpression),
     Reference(QualifiedColumnName),
     Function(FunctionExpression),
+    Asterisk,
 }
 
 impl Expr {
@@ -65,6 +66,7 @@ impl Expr {
                 None,
                 None,
             ),
+            Self::Asterisk => Ok("*".to_string()),
         }
     }
 }

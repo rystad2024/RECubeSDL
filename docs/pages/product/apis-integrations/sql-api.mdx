@@ -1,37 +1,44 @@
----
-redirect_from:
-  - /backend/sql
----
-
 # SQL API
 
-SQL API enables Cube to deliver data over the [Postgres-compatible
-protocol][postgres-protocol] to certain kinds of data applications, including
-but not limited to the following ones:
+The SQL API enables Cube to deliver data over the [Postgres-compatible
+protocol][postgres-protocol] to a wide range of [data visualization tools][ref-dataviz-tools].
+In general, if an application connects to [PostgreSQL][link-postgres] database,
+it can connect to Cube as well.
 
-- Most commonly, [business intelligence tools][ref-bi], e.g.,
-  [Tableau][ref-tableau], [Power BI][ref-powerbi], [ThoughtSpot][ref-thoughtspot],
-  [Sigma][ref-sigma], [Looker Studio][ref-looker-studio], [Superset /
-  Preset][ref-superset], and [Metabase][ref-metabase]
-- [Data notebooks][ref-notebooks], e.g., [Jupyter][ref-jupyter], [Hex][ref-hex],
-  or [Deepnote][ref-deepnote]
-- Reverse ETL tools, e.g., Census or Hightouch
+Unlike [DAX API][ref-dax-api], [MDX API][ref-mdx-api], and [Semantic Layer Sync][ref-sls],
+the SQL API provides a more generic way to work with Cube, limited to what the SQL
+query language and the Postgres protocol can offer.
 
-Often, the SQL API is used to enable internal or self-serve [business
+The SQL API works with the following kinds of data applications:
+
+- [BI tools][ref-bi], e.g., [ThoughtSpot][ref-thoughtspot], [Sigma][ref-sigma],
+[Looker Studio][ref-looker-studio], enabling internal or self-serve [business
 intelligence][cube-bi-use-case] use cases.
+- [Data notebooks][ref-notebooks], e.g., [Jupyter][ref-jupyter], [Hex][ref-hex],
+or [Deepnote][ref-deepnote].
+- Reverse ETL tools, e.g., Census or Hightouch.
+
+<ReferenceBox>
+
+Please use [this GitHub issue](https://github.com/cube-js/cube/issues/3906) to
+suggest tools of your interest and vote for already proposed ones.
+
+</ReferenceBox>
 
 See [SQL API reference][ref-ref-sql-api] for the list of supported SQL commands,
 functions, and operators. Also, check [query format][ref-sql-query-format] for
 details about supported queries.
 
-<InfoBox>
+## Transport
 
-Please use [this GitHub issue](https://github.com/cube-js/cube/issues/3906) to
-suggest tools of your interest and vote for already proposed ones.
+The SQL API supports the following transports:
 
-</InfoBox>
+| Transport | Description | When to use |
+| --- | --- | --- |
+| Postgres | Same protocol that is used by the `psql` utility and other Postgres clients | Use by default |
+| HTTP | JSON-based protocol that is also used by the [REST API][ref-rest-api] | Use when you need to run a SQL API query from an embedded analytics application and REST API is not an option |
 
-## Example request
+### Postgres protocol
 
 You can use the [`psql` utility][link-psql] to connect to the SQL API:
 
@@ -81,6 +88,21 @@ WHERE table_schema = 'public';
 ```sql
 \d
 ```
+
+### HTTP protocol
+
+You can use the `curl` utility to run a SQL API query over the HTTP protocol:
+
+```bash
+curl \
+  -X POST \
+  -H "Authorization: TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT 123 AS value UNION ALL SELECT 456 AS value UNION ALL SELECT 789 AS value"}' \
+  http://localhost:4000/cubejs-api/v1/cubesql
+```
+
+See the [`/v1/cubesql` endpoint][ref-rest-api-cubesql] reference for more details.
 
 ## Fundamentals
 
@@ -177,7 +199,7 @@ services:
 ```
 
 After running it with `docker compose up`, you can finally connect and execute
-an [example request](#example-request).
+an [example request](#transport).
 
 ### Cube Cloud
 
@@ -233,23 +255,24 @@ You can use the `CUBEJS_MAX_SESSIONS` environment variable to adjust the session
 limit.
 
 
+[link-postgres]: https://www.postgresql.org
+[ref-dax-api]: /product/apis-integrations/dax-api
+[ref-mdx-api]: /product/apis-integrations/mdx-api
+[ref-sls]: /product/apis-integrations/semantic-layer-sync
 [ref-sql-api-auth]: /product/apis-integrations/sql-api/security
-[ref-config-checksqlauth]: /reference/configuration/config#checksqlauth
-[ref-config-canswitchsqluser]: /reference/configuration/config#canswitchsqluser
+[ref-config-checksqlauth]: /product/configuration/reference/config#checksqlauth
+[ref-config-canswitchsqluser]: /product/configuration/reference/config#canswitchsqluser
+[ref-dataviz-tools]: /product/configuration/visualization-tools
 [ref-bi]: /product/configuration/visualization-tools#bi-data-exploration-tools
-[ref-superset]: /product/configuration/visualization-tools/superset
-[ref-tableau]: /product/configuration/visualization-tools/tableau
-[ref-powerbi]: /product/configuration/visualization-tools/powerbi
 [ref-thoughtspot]: /product/configuration/visualization-tools/thoughtspot
 [ref-sigma]: /product/configuration/visualization-tools/sigma
 [ref-looker-studio]: /product/configuration/visualization-tools/looker-studio
-[ref-metabase]: /product/configuration/visualization-tools/metabase
 [ref-notebooks]: /product/configuration/visualization-tools#notebooks
 [ref-jupyter]: /product/configuration/visualization-tools/jupyter
 [ref-hex]: /product/configuration/visualization-tools/hex
 [ref-deepnote]: /product/configuration/visualization-tools/deepnote
 [ref-sql-query-format]: /product/apis-integrations/sql-api/query-format
-[ref-ref-sql-api]: /reference/sql-api
+[ref-ref-sql-api]: /product/apis-integrations/sql-api/reference
 [ref-data-model-concepts]: /product/data-modeling/concepts
 [ref-regular-queries]: /product/apis-integrations/queries#regular-query
 [ref-queries-wpp]: /product/apis-integrations/queries#query-with-post-processing
@@ -264,3 +287,5 @@ limit.
 [postgres-protocol]: https://www.postgresql.org/docs/current/protocol.html
 [cube-bi-use-case]: https://cube.dev/use-cases/connected-bi
 [ref-queries-row-limit]: /product/apis-integrations/queries#row-limit
+[ref-rest-api]: /product/apis-integrations/rest-api
+[ref-rest-api-cubesql]: /product/apis-integrations/rest-api/reference#base_pathv1cubesql

@@ -1,8 +1,3 @@
----
-redirect_from:
-  - /cloud/deploys
----
-
 # Continuous deployment
 
 This guide covers features and tools you can use to deploy your Cube project to
@@ -33,6 +28,13 @@ git push cubecloud master
 First, ensure your deployment is configured to deploy with Git. Then connect
 your GitHub repository to your deployment by clicking the <Btn>Connect to
 GitHub</Btn> button, and selecting your repository.
+
+<WarningBox>
+
+If your organization uses SAML SSO for GitHub authentication, make sure to start an active SAML 
+session prior to connecting to your GitHub account from Cube.
+
+</WarningBox>
 
 <div style={{ textAlign: "center" }}>
   <img

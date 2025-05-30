@@ -26,6 +26,7 @@ impl WrapperRules {
                         "?cube_members",
                         "?grouped_subqueries",
                         "?ungrouped_scan",
+                        "?input_data_source",
                     ),
                 ),
                 wrapper_pullup_replacer(
@@ -37,6 +38,7 @@ impl WrapperRules {
                         "?cube_members",
                         "?grouped_subqueries",
                         "?ungrouped_scan",
+                        "?input_data_source",
                     ),
                 ),
             ),
@@ -53,6 +55,7 @@ impl WrapperRules {
                         "?cube_members",
                         "?grouped_subqueries",
                         "?ungrouped_scan",
+                        "?input_data_source",
                     ),
                 ),
                 wrapper_pullup_replacer(
@@ -64,6 +67,7 @@ impl WrapperRules {
                         "?cube_members",
                         "?grouped_subqueries",
                         "?ungrouped_scan",
+                        "?input_data_source",
                     ),
                 ),
                 self.pushdown_simple_measure("?name", "?cube_members"),
@@ -80,6 +84,7 @@ impl WrapperRules {
                         "?cube_members",
                         "?grouped_subqueries",
                         "?ungrouped_scan",
+                        "?input_data_source",
                     ),
                 ),
                 wrapper_pullup_replacer(
@@ -91,6 +96,7 @@ impl WrapperRules {
                         "?cube_members",
                         "?grouped_subqueries",
                         "?ungrouped_scan",
+                        "?input_data_source",
                     ),
                 ),
                 self.pushdown_dimension(
@@ -214,7 +220,7 @@ impl WrapperRules {
                     .data
                     .find_member_by_alias(&column.name)
                 {
-                    if let Some(measure) = meta.find_measure_with_name(member.to_string()) {
+                    if let Some(measure) = meta.find_measure_with_name(member) {
                         if measure.agg_type != Some("number".to_string()) {
                             return true;
                         }

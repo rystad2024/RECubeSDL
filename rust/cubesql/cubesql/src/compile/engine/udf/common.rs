@@ -24,7 +24,7 @@ use datafusion::{
     },
     error::{DataFusionError, Result},
     execution::context::SessionContext,
-    logical_plan::{create_udaf, create_udf},
+    logical_plan::create_udf,
     physical_plan::{
         functions::{
             datetime_expressions::date_trunc, make_scalar_function, make_table_function, Signature,
@@ -815,7 +815,7 @@ pub fn create_convert_tz_udf() -> ScalarUDF {
         }
 
         if let Some(tz) = input_tz {
-            if tz != &"UTC" {
+            if tz != "UTC" {
                 return Err(DataFusionError::NotImplemented(format!(
                     "convert_tz does not non UTC timezone as input, actual {}",
                     tz
@@ -1021,7 +1021,7 @@ pub fn create_date_udf() -> ScalarUDF {
         assert!(args.len() == 1);
 
         let mut args = args
-            .into_iter()
+            .iter()
             .map(|i| -> Result<ColumnarValue> {
                 if let Some(strings) = i.as_any().downcast_ref::<StringArray>() {
                     let mut builder = TimestampNanosecondArray::builder(strings.len());
@@ -1491,14 +1491,14 @@ fn date_addsub_day_time(
 }
 
 fn change_ym(t: NaiveDateTime, y: i32, m: u32) -> Option<NaiveDateTime> {
-    debug_assert!(1 <= m && m <= 12);
+    debug_assert!((1..=12).contains(&m));
     let mut d = t.day();
     d = d.min(last_day_of_month(y, m));
     t.with_day(1)?.with_year(y)?.with_month(m)?.with_day(d)
 }
 
 fn last_day_of_month(y: i32, m: u32) -> u32 {
-    debug_assert!(1 <= m && m <= 12);
+    debug_assert!((1..=12).contains(&m));
     if m == 12 {
         return 31;
     }
@@ -1669,7 +1669,8 @@ pub fn create_to_char_udf() -> ScalarUDF {
 
                     let secs = duration.num_seconds();
                     let nanosecs = duration.num_nanoseconds().unwrap_or(0) - secs * 1_000_000_000;
-                    let timestamp = NaiveDateTime::from_timestamp_opt(secs, nanosecs as u32)
+                    let timestamp = ::chrono::DateTime::from_timestamp(secs, nanosecs as u32)
+                        .map(|dt| dt.naive_utc())
                         .unwrap_or_else(|| panic!("Invalid secs {} nanosecs {}", secs, nanosecs));
 
                     // chrono's strftime is missing quarter format, as such a workaround is required
@@ -2258,14 +2259,66 @@ pub fn create_pg_get_constraintdef_udf() -> ScalarUDF {
     )
 }
 
+pub const MEASURE_UDAF_NAME: &str = "measure";
+
 pub fn create_measure_udaf() -> AggregateUDF {
-    create_udaf(
-        "measure",
-        DataType::Float64,
-        Arc::new(DataType::Float64),
-        Volatility::Immutable,
-        Arc::new(|| todo!("Not implemented")),
-        Arc::new(vec![DataType::Float64]),
+    let signature = Signature::any(1, Volatility::Immutable);
+
+    // MEASURE(cube.measure) should have same type as just cube.measure
+    let return_type: ReturnTypeFunction = Arc::new(move |inputs| {
+        if inputs.len() != 1 {
+            Err(DataFusionError::Internal(format!(
+                "Unexpected argument types for MEASURE: {inputs:?}"
+            )))
+        } else {
+            Ok(Arc::new(inputs[0].clone()))
+        }
+    });
+
+    let accumulator: AccumulatorFunctionImplementation = Arc::new(|| todo!("Not implemented"));
+
+    let state_type = Arc::new(vec![DataType::Float64]);
+    let state_type: StateTypeFunction = Arc::new(move |_| Ok(state_type.clone()));
+
+    AggregateUDF::new(
+        MEASURE_UDAF_NAME,
+        &signature,
+        &return_type,
+        &accumulator,
+        &state_type,
+    )
+}
+
+pub const PATCH_MEASURE_UDAF_NAME: &str = "__patch_measure";
+
+// TODO add sanity check on incoming query to disallow it in input
+pub fn create_patch_measure_udaf() -> AggregateUDF {
+    // TODO actually signature should look like (any, text, boolean)
+    let signature = Signature::any(3, Volatility::Immutable);
+
+    // __PATCH_MEASURE(cube.measure, type, filter) should have same type as just cube.measure
+    let return_type: ReturnTypeFunction = Arc::new(move |inputs| {
+        if inputs.len() != 3 {
+            Err(DataFusionError::Internal(format!(
+                "Unexpected argument types for {PATCH_MEASURE_UDAF_NAME}: {inputs:?}"
+            )))
+        } else {
+            Ok(Arc::new(inputs[0].clone()))
+        }
+    });
+
+    let accumulator: AccumulatorFunctionImplementation =
+        Arc::new(|| todo!("Internal, should not execute"));
+
+    let state_type = Arc::new(vec![DataType::Float64]);
+    let state_type: StateTypeFunction = Arc::new(move |_| Ok(state_type.clone()));
+
+    AggregateUDF::new(
+        PATCH_MEASURE_UDAF_NAME,
+        &signature,
+        &return_type,
+        &accumulator,
+        &state_type,
     )
 }
 
@@ -2316,7 +2369,8 @@ macro_rules! generate_series_udtf {
 
 macro_rules! generate_series_helper_date32 {
     ($CURRENT:ident, $STEP:ident, $PRIMITIVE_TYPE: ident) => {
-        let current_dt = NaiveDateTime::from_timestamp_opt(($CURRENT as i64) * 86400, 0)
+        let current_dt = ::chrono::DateTime::from_timestamp(($CURRENT as i64) * 86400, 0)
+            .map(|dt| dt.naive_utc())
             .ok_or_else(|| {
                 DataFusionError::Execution(format!(
                     "Cannot convert date to NaiveDateTime: {}",
@@ -2324,16 +2378,17 @@ macro_rules! generate_series_helper_date32 {
                 ))
             })?;
         let res = date_addsub_month_day_nano(current_dt, $STEP, true)?;
-        $CURRENT = (res.timestamp() / 86400) as $PRIMITIVE_TYPE;
+        $CURRENT = (res.and_utc().timestamp() / 86400) as $PRIMITIVE_TYPE;
     };
 }
 
 macro_rules! generate_series_helper_timestamp {
     ($CURRENT:ident, $STEP:ident, $PRIMITIVE_TYPE: ident) => {
-        let current_dt = NaiveDateTime::from_timestamp_opt(
+        let current_dt = ::chrono::DateTime::from_timestamp(
             ($CURRENT as i64) / 1_000_000_000,
             ($CURRENT % 1_000_000_000) as u32,
         )
+        .map(|dt| dt.naive_utc())
         .ok_or_else(|| {
             DataFusionError::Execution(format!(
                 "Cannot convert timestamp to NaiveDateTime: {}",

@@ -71,6 +71,7 @@ pub enum FilterOperator {
 pub struct QueryFilter {
     pub member: String,
     pub operator: FilterOperator,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub values: Option<Vec<String>>,
 }
 
@@ -82,6 +83,13 @@ pub struct GroupingSet {
     pub sub_id: Option<u32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CompareDateRangeType {
+    Single(Vec<String>),
+    Multi(Vec<Vec<String>>),
+}
+
 // We can do nothing with JS functions here,
 // but to keep DTOs in sync with reality, let's keep it.
 pub type JsFunction = String;
@@ -90,6 +98,7 @@ pub type JsFunction = String;
 #[serde(rename_all = "camelCase")]
 pub struct MemberExpression {
     // Made as Option and JsValueDeserializer set's it to None.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expression: Option<JsFunction>,
     pub cube_name: String,
     pub name: String,
@@ -119,8 +128,11 @@ pub struct ParsedMemberExpression {
 #[serde(rename_all = "camelCase")]
 pub struct QueryTimeDimension {
     pub dimension: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub date_range: Option<Vec<String>>,
-    pub compare_date_range: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compare_date_range: Option<CompareDateRangeType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub granularity: Option<String>,
 }
 
@@ -161,6 +173,8 @@ pub struct ConfigItem {
     pub drill_members_grouped: Option<DrillMembersGrouped>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub granularities: Option<Vec<GranularityMeta>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub granularity: Option<GranularityMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

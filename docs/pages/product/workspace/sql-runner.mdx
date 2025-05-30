@@ -1,8 +1,3 @@
----
-redirect_from:
-  - /cloud/sql-runner
----
-
 # SQL Runner
 
 The SQL Runner is a tool that allows you to execute SQL queries from Cube Cloud
@@ -35,13 +30,22 @@ and click <Btn>▶ Run</Btn>. The query results will be displayed under
   src="https://ucarecdn.com/2f910abf-5b94-43cd-87f8-14c86bd98f77/"
 />
 
-## Querying a data source vs Cube Store
+## Querying data sources
 
-The SQL Runner can run queries against any configured data sources, which is
-helpful for diagnosing database-specific issues. It can also run queries against
-Cube Store, which is useful for testing pre-aggregations directly to see if they
-return expected results. You can switch data source(s) by clicking the dropdown
-under **Data Source**:
+SQL Runner can run queries against configured data sources, which is
+helpful for diagnosing database-specific issues.
+
+<InfoBox>
+
+In order for an additional data source to show up in SQL Runner, it needs to be
+the [data source][ref-cube-datasource] in at least one cube definition.
+
+</InfoBox>
+
+It can also run queries against Cube Store, which is useful for testing
+pre-aggregations directly to see if they return expected results.
+
+You can switch data source(s) by clicking the dropdown under <Btn>Data Source</Btn>:
 
 <Screenshot
   highlight="inset(25% 60% 53% 6% round 10px)"
@@ -63,9 +67,9 @@ will be executed with the default security context. If one is provided, then the
 **Schema Explorer** will reload to reflect the data source available to the
 security context.
 
-[ref-conf-ref-driverfactory]: /reference/configuration/config#driverfactory
+[ref-conf-ref-driverfactory]: /product/configuration/reference/config#driverfactory
 [ref-recipe-multi-src-same-model]:
-  /guides/recipes/data-sources/multiple-sources-same-schema
+  /product/configuration/recipes/multiple-sources-same-schema
 
 ### Scheduled Refresh Contexts
 
@@ -97,6 +101,8 @@ in a data model should be a `numeric`).
   src="https://ucarecdn.com/c2735f7c-d5e7-4b6b-903b-8d0db07b668e/"
 />
 
+
 [cubecloud-signup]: https://cubecloud.dev/auth/signup
 [ref-conf-scheduled-refresh-ctx]:
-  /reference/configuration/config#scheduledrefreshcontexts
+  /product/configuration/reference/config#scheduledrefreshcontexts
+[ref-cube-datasource]: /product/data-modeling/reference/cube#data_source

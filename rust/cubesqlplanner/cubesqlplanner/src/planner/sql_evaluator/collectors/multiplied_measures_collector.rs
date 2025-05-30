@@ -37,6 +37,7 @@ impl TraversalVisitor for CompositeMeasuresCollector {
     fn on_node_traverse(
         &mut self,
         node: &Rc<MemberSymbol>,
+        _path: &Vec<String>,
         state: &Self::State,
     ) -> Result<Option<Self::State>, CubeError> {
         let res = match node.as_ref() {
@@ -93,6 +94,7 @@ impl TraversalVisitor for MultipliedMeasuresCollector {
     fn on_node_traverse(
         &mut self,
         node: &Rc<MemberSymbol>,
+        _path: &Vec<String>,
         _: &Self::State,
     ) -> Result<Option<Self::State>, CubeError> {
         let res = match node.as_ref() {
@@ -120,6 +122,7 @@ impl TraversalVisitor for MultipliedMeasuresCollector {
                     None
                 }
             }
+            MemberSymbol::MemberExpression(_) => Some(()),
             MemberSymbol::Dimension(_) => None,
             _ => None,
         };
