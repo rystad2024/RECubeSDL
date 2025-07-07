@@ -19,7 +19,7 @@ function transformValue(type: string, value: unknown) {
       || type.includes('Decimal')
     ) {
       // convert all numbers into strings
-      return `${value}`;
+      return value;
     }
   }
 
