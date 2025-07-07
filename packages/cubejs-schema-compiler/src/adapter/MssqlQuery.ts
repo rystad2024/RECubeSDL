@@ -259,6 +259,25 @@ export class MssqlQuery extends BaseQuery {
     templates.types.timestamp = 'DATETIME2';
     delete templates.types.interval;
     templates.types.binary = 'VARBINARY';
+    templates.params.param = '@_{{ param_index + 1 }}';
+    templates.statements.select = '{% if ctes %} WITH \n' +
+'{{ ctes | join(\',\n\') }}\n' +
+'{% endif %}' +
+'SELECT{% if distinct %} DISTINCT{% endif %}{% if limit is not none and offset is none %} TOP {{ limit }}{% endif %} ' +
+'{{ select_concat | map(attribute=\'aliased\') | join(\', \') }} {% if from %}\n' +
+'FROM (\n' +
+'{{ from | indent(2, true) }}\n' +
+') AS {{ from_alias }}{% elif from_prepared %}\n' +
+'FROM {{ from_prepared }}' +
+'{% endif %}' +
+'{% if filter %}\nWHERE {{ filter }}{% endif %}' +
+'{% if group_by %}\nGROUP BY {{ group_by }}{% endif %}' +
+'{% if having %}\nHAVING {{ having }}{% endif %}' +
+'{% if order_by %}\nORDER BY {{ order_by | map(attribute=\'expr\') | join(\', \') }}{% endif %}' +
+'{% if offset is not none %}\nOFFSET {{ offset }} ROWS{% if limit is not none %} FETCH NEXT {{ limit }} ROWS ONLY{% endif %}{% endif %}'
+    templates.statements.group_by_exprs= '{{ group_by | map(attribute=\'expr\') | join(\', \') }}';
+    templates.join_types.full = 'FULL';
+    templates.operators.is_not_distinct_from = 'IS NOT DISTINCT FROM';
     return templates;
   }
 }
