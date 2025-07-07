@@ -282,6 +282,8 @@ export class ClickHouseQuery extends BaseQuery {
     // ClickHouse intervals have a distinct type for each granularity
     delete templates.types.interval;
     delete templates.types.binary;
+    templates.join_types.full = 'FULL';
+    templates.operators.is_not_distinct_from = 'IS NOT DISTINCT FROM';
     return templates;
   }
 }
