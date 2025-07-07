@@ -263,6 +263,7 @@ pub enum FieldValue<'a> {
     // @see v8 WriteUtf8 for more details. Cow::Owned is used for this variant
     String(Cow<'a, str>),
     Number(f64),
+    Integer(i64),
     Bool(bool),
     Null,
 }

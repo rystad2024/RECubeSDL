@@ -73,7 +73,13 @@ pub fn transform_value(value: DBResponseValue, type_: &str) -> DBResponsePrimiti
                 .unwrap_or_else(|_| s.clone());
             DBResponsePrimitive::String(formatted)
         }
-        DBResponseValue::Primitive(p) => p,
+        DBResponseValue::Primitive(DBResponsePrimitive::Number(f)) if f.trunc() == f =>
+        {
+            DBResponsePrimitive::Integer(f as i64)
+        }
+        DBResponseValue::Primitive(p) => {
+            p
+        },
         DBResponseValue::Object { value } => value,
         _ => DBResponsePrimitive::Null,
     }
@@ -620,6 +626,7 @@ pub enum DBResponsePrimitive {
     Null,
     Boolean(bool),
     Number(f64),
+    Integer(i64),
     String(String),
     Uncommon(Value),
 }
@@ -630,6 +637,7 @@ impl Display for DBResponsePrimitive {
             DBResponsePrimitive::Null => "null".to_string(),
             DBResponsePrimitive::Boolean(b) => b.to_string(),
             DBResponsePrimitive::Number(n) => n.to_string(),
+            DBResponsePrimitive::Integer(n) => n.to_string(),
             DBResponsePrimitive::String(s) => s.clone(),
             DBResponsePrimitive::Uncommon(v) => {
                 serde_json::to_string(&v).unwrap_or_else(|_| v.to_string())
