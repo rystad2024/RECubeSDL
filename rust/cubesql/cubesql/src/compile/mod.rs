@@ -626,6 +626,7 @@ mod tests {
                 .request
                 .dimensions,
             Some(vec![
+                "KibanaSampleDataEcommerce.id".to_string(),
                 "KibanaSampleDataEcommerce.order_date".to_string(),
                 "KibanaSampleDataEcommerce.last_mod".to_string(),
                 "KibanaSampleDataEcommerce.customer_gender".to_string(),
@@ -651,6 +652,7 @@ mod tests {
                 .request
                 .dimensions,
             Some(vec![
+                "KibanaSampleDataEcommerce.id".to_string(),
                 "KibanaSampleDataEcommerce.order_date".to_string(),
                 "KibanaSampleDataEcommerce.last_mod".to_string(),
                 "KibanaSampleDataEcommerce.customer_gender".to_string(),
@@ -756,6 +758,7 @@ mod tests {
                 ]),
                 segments: Some(vec![]),
                 dimensions: Some(vec![
+                    "KibanaSampleDataEcommerce.id".to_string(),
                     "KibanaSampleDataEcommerce.order_date".to_string(),
                     "KibanaSampleDataEcommerce.last_mod".to_string(),
                     "KibanaSampleDataEcommerce.customer_gender".to_string(),
@@ -5720,6 +5723,20 @@ ORDER BY
     }
 
     #[tokio::test]
+    async fn test_pgcatalog_pgshdescription_postgres() -> Result<(), CubeError> {
+        insta::assert_snapshot!(
+            "pgcatalog_pgshdescription_postgres",
+            execute_query(
+                "SELECT * FROM pg_catalog.pg_shdescription".to_string(),
+                DatabaseProtocol::PostgreSQL
+            )
+            .await?
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_constraint_column_usage_postgres() -> Result<(), CubeError> {
         insta::assert_snapshot!(
             "constraint_column_usage_postgres",
@@ -8217,6 +8234,7 @@ ORDER BY "source"."str0" ASC
                     "Logs.agentCountApprox".to_string(),
                 ]),
                 dimensions: Some(vec![
+                    "KibanaSampleDataEcommerce.id".to_string(),
                     "KibanaSampleDataEcommerce.order_date".to_string(),
                     "KibanaSampleDataEcommerce.last_mod".to_string(),
                     "KibanaSampleDataEcommerce.customer_gender".to_string(),
@@ -8402,6 +8420,7 @@ ORDER BY "source"."str0" ASC
                     "KibanaSampleDataEcommerce.countDistinct".to_string(),
                 ]),
                 dimensions: Some(vec![
+                    "KibanaSampleDataEcommerce.id".to_string(),
                     "KibanaSampleDataEcommerce.order_date".to_string(),
                     "KibanaSampleDataEcommerce.last_mod".to_string(),
                     "KibanaSampleDataEcommerce.customer_gender".to_string(),
@@ -13879,8 +13898,8 @@ ORDER BY "source"."str0" ASC
 
         let sql = logical_plan.find_cube_scan_wrapped_sql().wrapped_sql.sql;
 
-        // check if contains `CAST(EXTRACT(YEAR FROM ..) || .. || .. || ..)`
-        let re = Regex::new(r"CAST.+EXTRACT.+YEAR FROM(.+ \|\|){3}").unwrap();
+        // check if contains `CAST(EXTRACT(year FROM ..) || .. || .. || ..)`
+        let re = Regex::new(r"CAST.+EXTRACT.+year FROM(.+ \|\|){3}").unwrap();
         assert!(re.is_match(&sql));
         // check if contains `LOWER(..) = .. AND LOWER(..) = ..`
         let re = Regex::new(r"LOWER ?\(.+\) = .+ AND .+LOWER ?\(.+\) = .+").unwrap();
@@ -14031,8 +14050,8 @@ ORDER BY "source"."str0" ASC
 
         if Rewriter::sql_push_down_enabled() {
             let sql = logical_plan.find_cube_scan_wrapped_sql().wrapped_sql.sql;
-            assert!(sql.contains("EXTRACT(YEAR"));
-            assert!(sql.contains("EXTRACT(MONTH"));
+            assert!(sql.contains("EXTRACT(year"));
+            assert!(sql.contains("EXTRACT(month"));
 
             let physical_plan = query_plan.as_physical_plan().await.unwrap();
             println!(
@@ -15114,7 +15133,7 @@ ORDER BY "source"."str0" ASC
             .find_cube_scan_wrapped_sql()
             .wrapped_sql
             .sql
-            .contains("EXTRACT(MONTH FROM "));
+            .contains("EXTRACT(month FROM "));
     }
 
     #[tokio::test]
@@ -15155,7 +15174,7 @@ ORDER BY "source"."str0" ASC
         let logical_plan = query_plan.as_logical_plan();
         let sql = logical_plan.find_cube_scan_wrapped_sql().wrapped_sql.sql;
         assert!(sql.contains("order_date"));
-        assert!(sql.contains("EXTRACT(DAY FROM"))
+        assert!(sql.contains("EXTRACT(day FROM"))
     }
 
     #[tokio::test]
@@ -16522,7 +16541,7 @@ LIMIT {{ limit }}{% endif %}"#.to_string(),
 
         let logical_plan = query_plan.as_logical_plan();
         let sql = logical_plan.find_cube_scan_wrapped_sql().wrapped_sql.sql;
-        assert!(sql.contains("EXTRACT(EPOCH"));
+        assert!(sql.contains("EXTRACT(epoch"));
 
         // Databricks
         let query_plan = convert_select_to_query_plan_customized(
@@ -17109,5 +17128,44 @@ LIMIT {{ limit }}{% endif %}"#.to_string(),
             "Physical plan: {}",
             displayable(physical_plan.as_ref()).indent()
         );
+    }
+
+    #[tokio::test]
+    async fn test_sort_normalize() {
+        init_testing_logger();
+
+        let logical_plan = convert_select_to_query_plan(
+            r#"
+            SELECT
+                q2.id,
+                q3.id
+            FROM KibanaSampleDataEcommerce q1
+            LEFT JOIN Logs q2 ON q1.__cubeJoinField = q2.__cubeJoinField
+            LEFT JOIN Logs q3 ON q1.__cubeJoinField = q3.__cubeJoinField
+            ORDER BY
+                q2.id,
+                q3.id
+            ;"#
+            .to_string(),
+            DatabaseProtocol::PostgreSQL,
+        )
+        .await
+        .as_logical_plan();
+
+        assert_eq!(
+            logical_plan.find_cube_scan().request,
+            V1LoadRequestQuery {
+                measures: Some(vec![]),
+                dimensions: Some(vec!["Logs.id".to_string(),]),
+                segments: Some(vec![]),
+                order: Some(vec![]),
+                ungrouped: Some(true),
+                join_hints: Some(vec![
+                    vec!["KibanaSampleDataEcommerce".to_string(), "Logs".to_string()],
+                    vec!["KibanaSampleDataEcommerce".to_string(), "Logs".to_string()],
+                ]),
+                ..Default::default()
+            }
+        )
     }
 }

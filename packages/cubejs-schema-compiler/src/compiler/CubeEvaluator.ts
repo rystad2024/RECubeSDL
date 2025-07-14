@@ -28,15 +28,17 @@ export type DimensionDefinition = {
 };
 
 export type TimeShiftDefinition = {
-  timeDimension?: (...args: Array<unknown>) => ToString,
-  interval: string,
-  type: 'next' | 'prior',
+  timeDimension?: (...args: Array<unknown>) => ToString;
+  name?: string;
+  interval?: string;
+  type?: 'next' | 'prior';
 };
 
 export type TimeShiftDefinitionReference = {
-  timeDimension?: string,
-  interval: string,
-  type: 'next' | 'prior',
+  timeDimension?: string;
+  name?: string;
+  interval?: string;
+  type?: 'next' | 'prior';
 };
 
 export type MeasureDefinition = {
@@ -393,6 +395,7 @@ export class CubeEvaluator extends CubeSymbols {
         }
         if (member.timeShift) {
           member.timeShiftReferences = member.timeShift.map((s): TimeShiftDefinitionReference => ({
+            name: s.name,
             interval: s.interval,
             type: s.type,
             ...(typeof s.timeDimension === 'function'
@@ -569,6 +572,22 @@ export class CubeEvaluator extends CubeSymbols {
       name,
       ...(preAggregation as Record<string, any>)
     }));
+  }
+
+  public preAggregationDescriptionByName(cubeName: string, preAggName: string) {
+    const cube = this.cubeFromPath(cubeName);
+    const preAggregations = cube.preAggregations || {};
+
+    const preAgg = preAggregations[preAggName];
+
+    if (!preAgg) {
+      return undefined;
+    }
+
+    return {
+      name: preAggName,
+      ...(preAgg as Record<string, any>)
+    };
   }
 
   /**
@@ -783,6 +802,14 @@ export class CubeEvaluator extends CubeSymbols {
       cubeReferencesUsed,
     });
     return { cubeReferencesUsed, pathReferencesUsed, evaluatedSql };
+  }
+
+  /**
+   * Evaluates rollup references for retrieving rollupReference used in Tesseract.
+   * This is a temporary solution until Tesseract takes ownership of all pre-aggregations.
+   */
+  public evaluateRollupReferences<T extends ToString | Array<ToString>>(cube: string, rollupReferences: (...args: Array<unknown>) => T) {
+    return this.evaluateReferences(cube, rollupReferences, { originalSorting: true });
   }
 
   public evaluatePreAggregationReferences(cube: string, aggregation: PreAggregationDefinition): PreAggregationReferences {

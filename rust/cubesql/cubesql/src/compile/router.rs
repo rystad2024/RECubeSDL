@@ -15,9 +15,8 @@ use crate::{
         auth_service::SqlAuthServiceAuthenticateRequest,
         dataframe,
         statement::{
-            ApproximateCountDistinctVisitor, CastReplacer, DateTokenNormalizeReplacer,
-            RedshiftDatePartReplacer, SensitiveDataSanitizer, ToTimestampReplacer,
-            UdfWildcardArgReplacer,
+            ApproximateCountDistinctVisitor, CastReplacer, RedshiftDatePartReplacer,
+            SensitiveDataSanitizer, ToTimestampReplacer, UdfWildcardArgReplacer,
         },
         ColumnFlags, ColumnType, Session, SessionManager, SessionState,
     },
@@ -456,7 +455,6 @@ impl QueryRouter {
                     .session_manager
                     .server
                     .auth
-                    // TODO do we want to send actual password here?
                     .authenticate(sql_auth_request, Some(to_user.clone()), None)
                     .await
                     .map_err(|e| {
@@ -466,8 +464,13 @@ impl QueryRouter {
                     .set_auth_context(Some(authenticate_response.context));
             } else {
                 return Err(CompilationError::user(format!(
-                    "{:?} is not allowed to switch to '{}'",
-                    auth_context, to_user
+                    "user '{}' is not allowed to switch to '{}'",
+                    auth_context
+                        .user()
+                        .as_ref()
+                        .map(|v| v.as_str())
+                        .unwrap_or("not specified"),
+                    to_user
                 )));
             }
         }
@@ -621,7 +624,6 @@ pub fn rewrite_statement(stmt: ast::Statement) -> ast::Statement {
     let stmt = CastReplacer::new().replace(stmt);
     let stmt = ToTimestampReplacer::new().replace(stmt);
     let stmt = UdfWildcardArgReplacer::new().replace(stmt);
-    let stmt = DateTokenNormalizeReplacer::new().replace(stmt);
     let stmt = RedshiftDatePartReplacer::new().replace(stmt);
     let stmt = ApproximateCountDistinctVisitor::new().replace(stmt);
 

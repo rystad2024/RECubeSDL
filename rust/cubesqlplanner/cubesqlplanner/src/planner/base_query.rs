@@ -20,6 +20,7 @@ pub struct BaseQuery<IT: InnerTypes> {
     context: NativeContextHolder<IT>,
     query_tools: Rc<QueryTools>,
     request: Rc<QueryProperties>,
+    cubestore_support_multistage: bool,
 }
 
 impl<IT: InnerTypes> BaseQuery<IT> {
@@ -27,6 +28,10 @@ impl<IT: InnerTypes> BaseQuery<IT> {
         context: NativeContextHolder<IT>,
         options: Rc<dyn BaseQueryOptions>,
     ) -> Result<Self, CubeError> {
+        let cubestore_support_multistage = options
+            .static_data()
+            .cubestore_support_multistage
+            .unwrap_or(false);
         let query_tools = QueryTools::try_new(
             options.cube_evaluator()?,
             options.base_tools()?,
@@ -41,6 +46,7 @@ impl<IT: InnerTypes> BaseQuery<IT> {
             context,
             query_tools,
             request,
+            cubestore_support_multistage,
         })
     }
 
@@ -117,12 +123,15 @@ impl<IT: InnerTypes> BaseQuery<IT> {
         let res = self.context.empty_array()?;
         res.set(0, result_sql.to_native(self.context.clone())?)?;
         res.set(1, params.to_native(self.context.clone())?)?;
-        if let Some(used_pre_aggregations) = used_pre_aggregations.first() {
+        if let Some(used_pre_aggregation) = used_pre_aggregations.first() {
+            //FIXME We should build this object in Rust
+            let pre_aggregation_obj = self.query_tools.base_tools().get_pre_aggregation_by_name(
+                used_pre_aggregation.cube_name.clone(),
+                used_pre_aggregation.name.clone(),
+            )?;
             res.set(
                 2,
-                used_pre_aggregations
-                    .pre_aggregation_obj
-                    .clone()
+                pre_aggregation_obj
                     .as_any()
                     .downcast::<NativePreAggregationObj<IT>>()
                     .unwrap()
@@ -139,8 +148,10 @@ impl<IT: InnerTypes> BaseQuery<IT> {
         plan: Rc<Query>,
     ) -> Result<(Rc<Query>, Vec<Rc<PreAggregation>>), CubeError> {
         let result = if !self.request.is_pre_aggregation_query() {
-            let mut pre_aggregation_optimizer =
-                PreAggregationOptimizer::new(self.query_tools.clone());
+            let mut pre_aggregation_optimizer = PreAggregationOptimizer::new(
+                self.query_tools.clone(),
+                self.cubestore_support_multistage,
+            );
             if let Some(result) = pre_aggregation_optimizer.try_optimize(plan.clone())? {
                 if pre_aggregation_optimizer.get_used_pre_aggregations().len() == 1 {
                     (

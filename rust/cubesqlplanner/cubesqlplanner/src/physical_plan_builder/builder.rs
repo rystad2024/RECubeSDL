@@ -5,17 +5,19 @@ use crate::planner::planners::multi_stage::TimeShiftState;
 use crate::planner::query_properties::OrderByItem;
 use crate::planner::query_tools::QueryTools;
 use crate::planner::sql_evaluator::sql_nodes::SqlNodesFactory;
-use crate::planner::sql_evaluator::MemberSymbol;
+use crate::planner::sql_evaluator::symbols::CalendarDimensionTimeShift;
 use crate::planner::sql_evaluator::ReferencesBuilder;
+use crate::planner::sql_evaluator::{DimensionTimeShift, MemberSymbol};
 use crate::planner::sql_templates::PlanSqlTemplates;
 use crate::planner::BaseMemberHelper;
 use crate::planner::SqlJoinCondition;
 use crate::planner::{BaseMember, MemberSymbolRef};
 use cubenativeutils::CubeError;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
+
 const TOTAL_COUNT: &str = "total_count";
 const ORIGINAL_QUERY: &str = "original_query";
 
@@ -31,7 +33,45 @@ struct PhysicalPlanBuilderContext {
 impl PhysicalPlanBuilderContext {
     pub fn make_sql_nodes_factory(&self) -> SqlNodesFactory {
         let mut factory = SqlNodesFactory::new();
-        factory.set_time_shifts(self.time_shifts.clone());
+
+        let (time_shifts, calendar_time_shifts): (
+            HashMap<String, DimensionTimeShift>,
+            HashMap<String, CalendarDimensionTimeShift>,
+        ) = self
+            .time_shifts
+            .dimensions_shifts
+            .iter()
+            .partition_map(|(key, shift)| {
+                if let Ok(dimension) = shift.dimension.as_dimension() {
+                    if let Some(dim_shift_name) = &shift.name {
+                        if let Some((dim_key, cts)) =
+                            dimension.calendar_time_shift_for_named_interval(dim_shift_name)
+                        {
+                            return Either::Right((dim_key.clone(), cts.clone()));
+                        } else if let Some(_calendar_pk) = dimension.time_shift_pk_full_name() {
+                            // TODO: Handle case when named shift is not found
+                        }
+                    } else if let Some(dim_shift_interval) = &shift.interval {
+                        if let Some((dim_key, cts)) =
+                            dimension.calendar_time_shift_for_interval(dim_shift_interval)
+                        {
+                            return Either::Right((dim_key.clone(), cts.clone()));
+                        } else if let Some(calendar_pk) = dimension.time_shift_pk_full_name() {
+                            let mut shift = shift.clone();
+                            shift.interval = Some(dim_shift_interval.inverse());
+                            return Either::Left((calendar_pk, shift.clone()));
+                        }
+                    }
+                }
+                Either::Left((key.clone(), shift.clone()))
+            });
+
+        let common_time_shifts = TimeShiftState {
+            dimensions_shifts: time_shifts,
+        };
+
+        factory.set_time_shifts(common_time_shifts);
+        factory.set_calendar_time_shifts(calendar_time_shifts);
         factory.set_count_approx_as_state(self.render_measure_as_state);
         factory.set_ungrouped_measure(self.render_measure_for_ungrouped);
         factory.set_original_sql_pre_aggregations(self.original_sql_pre_aggregations.clone());
@@ -185,16 +225,11 @@ impl PhysicalPlanBuilder {
     fn process_pre_aggregation(
         &self,
         pre_aggregation: &Rc<PreAggregation>,
-        _context: &PhysicalPlanBuilderContext,
+        context: &PhysicalPlanBuilderContext,
         measure_references: &mut HashMap<String, QualifiedColumnName>,
         dimensions_references: &mut HashMap<String, QualifiedColumnName>,
     ) -> Result<Rc<From>, CubeError> {
         let mut pre_aggregation_schema = Schema::empty();
-        let pre_aggregation_alias = PlanSqlTemplates::memeber_alias_name(
-            &pre_aggregation.cube_name,
-            &pre_aggregation.name,
-            &None,
-        );
         for dim in pre_aggregation.dimensions.iter() {
             let alias = BaseMemberHelper::default_alias(
                 &dim.cube_name(),
@@ -204,7 +239,7 @@ impl PhysicalPlanBuilder {
             )?;
             dimensions_references.insert(
                 dim.full_name(),
-                QualifiedColumnName::new(Some(pre_aggregation_alias.clone()), alias.clone()),
+                QualifiedColumnName::new(None, alias.clone()),
             );
             pre_aggregation_schema.add_column(SchemaColumn::new(alias, Some(dim.full_name())));
         }
@@ -217,7 +252,7 @@ impl PhysicalPlanBuilder {
             )?;
             dimensions_references.insert(
                 dim.full_name(),
-                QualifiedColumnName::new(Some(pre_aggregation_alias.clone()), alias.clone()),
+                QualifiedColumnName::new(None, alias.clone()),
             );
             pre_aggregation_schema.add_column(SchemaColumn::new(alias, Some(dim.full_name())));
         }
@@ -230,16 +265,76 @@ impl PhysicalPlanBuilder {
             )?;
             measure_references.insert(
                 meas.full_name(),
-                QualifiedColumnName::new(Some(pre_aggregation_alias.clone()), alias.clone()),
+                QualifiedColumnName::new(None, alias.clone()),
             );
             pre_aggregation_schema.add_column(SchemaColumn::new(alias, Some(meas.full_name())));
         }
-        let from = From::new_from_table_reference(
-            pre_aggregation.table_name.clone(),
-            Rc::new(pre_aggregation_schema),
-            Some(pre_aggregation_alias),
-        );
+        let from = self.make_pre_aggregation_source(
+            &pre_aggregation.source,
+            context,
+            measure_references,
+            dimensions_references,
+        )?;
         Ok(from)
+    }
+
+    fn make_pre_aggregation_source(
+        &self,
+        source: &Rc<PreAggregationSource>,
+        _context: &PhysicalPlanBuilderContext,
+        _measure_references: &mut HashMap<String, QualifiedColumnName>,
+        dimensions_references: &mut HashMap<String, QualifiedColumnName>,
+    ) -> Result<Rc<From>, CubeError> {
+        let from = match source.as_ref() {
+            PreAggregationSource::Table(table) => {
+                let table_source = self.make_pre_aggregation_table_source(table)?;
+                From::new(FromSource::Single(table_source))
+            }
+            PreAggregationSource::Join(join) => {
+                let root_table_source = self.make_pre_aggregation_table_source(&join.root)?;
+                let mut join_builder = JoinBuilder::new(root_table_source);
+                for item in join.items.iter() {
+                    let to_table_source = self.make_pre_aggregation_table_source(&item.to)?;
+                    let condition =
+                        SqlJoinCondition::try_new(self.query_tools.clone(), item.on_sql.clone())?;
+                    let on = JoinCondition::new_base_join(condition);
+                    join_builder.left_join_aliased_source(to_table_source, on);
+                    for member in item.from_members.iter().chain(item.to_members.iter()) {
+                        let alias = BaseMemberHelper::default_alias(
+                            &member.cube_name(),
+                            &member.name(),
+                            &None,
+                            self.query_tools.clone(),
+                        )?;
+                        dimensions_references.insert(
+                            member.full_name(),
+                            QualifiedColumnName::new(None, alias.clone()),
+                        );
+                    }
+                }
+                let from = From::new_from_join(join_builder.build());
+                from
+            }
+        };
+        Ok(from)
+    }
+
+    fn make_pre_aggregation_table_source(
+        &self,
+        table: &PreAggregationTable,
+    ) -> Result<SingleAliasedSource, CubeError> {
+        let name = table.alias.clone().unwrap_or_else(|| table.name.clone());
+        let table_name = self
+            .query_tools
+            .base_tools()
+            .pre_aggregation_table_name(table.cube_name.clone(), name.clone())?;
+        let alias = PlanSqlTemplates::memeber_alias_name(&table.cube_name, &name, &None);
+        let res = SingleAliasedSource::new_from_table_reference(
+            table_name,
+            Rc::new(Schema::empty()),
+            Some(alias),
+        );
+        Ok(res)
     }
 
     fn build_full_key_aggregate_query(
@@ -962,8 +1057,9 @@ impl PhysicalPlanBuilder {
             ));
         };
 
-        let ts_date_range = if self.plan_sql_templates.supports_generated_time_series()
-            && granularity_obj.is_predefined_granularity()
+        let ts_date_range = if self
+            .plan_sql_templates
+            .supports_generated_time_series(granularity_obj.is_predefined_granularity())?
         {
             if let Some(date_range) = time_dimension_symbol
                 .get_range_for_time_series(date_range, self.query_tools.timezone())?

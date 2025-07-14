@@ -200,8 +200,8 @@ pub fn get_members(
         if !annotation.contains_key(member_name) {
             bail!(
                 concat!(
-                    "You requested hidden member: '{}'. Please make it visible using `shown: true`. ",
-                    "Please note primaryKey fields are `shown: false` by default: ",
+                    "You requested hidden member: '{}'. Please make it visible using `public: true`. ",
+                    "Please note primaryKey fields are `public: false` by default: ",
                     "https://cube.dev/docs/schema/reference/joins#setting-a-primary-key."
                 ),
                 column
@@ -350,8 +350,8 @@ pub fn get_vanilla_row(
                 None => {
                     bail!(
                     concat!(
-                        "You requested hidden member: '{}'. Please make it visible using `shown: true`. ",
-                        "Please note primaryKey fields are `shown: false` by default: ",
+                        "You requested hidden member: '{}'. Please make it visible using `public: true`. ",
+                        "Please note primaryKey fields are `public: false` by default: ",
                         "https://cube.dev/docs/schema/reference/joins#setting-a-primary-key."
                     ),
                     alias
