@@ -248,7 +248,10 @@ export class MssqlQuery extends BaseQuery {
     templates.functions.GREATEST = 'GREATEST({{ args_concat }})';
     // PERCENTILE_CONT works but requires PARTITION BY
     delete templates.functions.PERCENTILECONT;
-    delete templates.expressions.ilike;
+    // delete templates.expressions.ilike;
+    templates.expressions.ilike = '{{ expr }} {% if negated %}NOT {% endif %}LIKE {{ pattern }}';
+    templates.tesseract.ilike = '{{ expr }} {% if negated %}NOT {% endif %}LIKE {{ pattern }}';
+    templates.filters.like_pattern = '{% if start_wild %}\'%\' + {% endif %}{{ value }}{% if end_wild %}+ \'%\'{% endif %}';
     // NOTE: this template contains a comma; two order expressions are being generated
     templates.expressions.sort = '{{ expr }} IS NULL {% if nulls_first %}DESC{% else %}ASC{% endif %}, {{ expr }} {% if asc %}ASC{% else %}DESC{% endif %}';
     templates.types.string = 'VARCHAR';
