@@ -177,6 +177,8 @@ export class MysqlQuery extends BaseQuery {
     templates.types.timestamp = 'DATETIME';
     delete templates.types.interval;
     templates.types.binary = 'BLOB';
+    templates.join_types.full = 'FULL';
+    templates.operators.is_not_distinct_from = '<=>';
     return templates;
   }
 }
