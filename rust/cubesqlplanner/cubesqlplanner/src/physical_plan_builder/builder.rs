@@ -518,25 +518,101 @@ impl PhysicalPlanBuilder {
             let left_schema = joins[i - 1].schema();
             let right_schema = joins[i].schema();
             // TODO every next join should join to all previous dimensions through OR: q_0.a = q_1.a, q_0.a = q_2.a OR q_1.a = q_2.a, ...
+            // let conditions = dimensions_for_join
+            //     .iter()
+            //     .map(|dim| {
+            //         (0..i)
+            //             .map(|left_i| {
+            //                 let left_alias = format!("q_{}", left_i);
+            //                 let alias_in_left_query = left_schema.resolve_member_alias(dim);
+            //                 let left_ref = Expr::Reference(QualifiedColumnName::new(
+            //                     Some(left_alias.clone()),
+            //                     alias_in_left_query,
+            //                 ));
+            //                 let alias_in_right_query = right_schema.resolve_member_alias(dim);
+            //                 let right_ref = Expr::Reference(QualifiedColumnName::new(
+            //                     Some(right_alias.clone()),
+            //                     alias_in_right_query,
+            //                 ));
+            //                 (left_ref, right_ref)
+            //             })
+            //             .collect::<Vec<_>>()
+            //     })
+            //     .collect_vec();
+
+            // let conditions = dimensions_for_join
+            //     .iter()
+            //     .map(|dim| {
+            //         // Create coalesce arguments for all left queries (q_0 to q_{i-1})
+            //         let coalesce_args: Vec<Expr> = (0..i)
+            //             .map(|left_i| {
+            //                 let left_alias = format!("q_{}", left_i);
+            //                 let alias_in_left_query = left_schema.resolve_member_alias(dim);
+            //                 Expr::Reference(QualifiedColumnName::new(
+            //                     Some(left_alias),
+            //                     alias_in_left_query,
+            //                 ))
+            //             })
+            //             .collect();
+
+            //         // Create the coalesce function expression
+            //         let coalesce_left = Expr::Function(expression::FunctionExpression {
+            //             function: "coalesce".to_string(),
+            //             arguments: coalesce_args,
+            //         });
+
+            //         // Create the right reference
+            //         let alias_in_right_query = right_schema.resolve_member_alias(dim);
+            //         let right_ref = Expr::Reference(QualifiedColumnName::new(
+            //             Some(right_alias.clone()),
+            //             alias_in_right_query,
+            //         ));
+
+            //         vec![(coalesce_left, right_ref)]
+            //     })
+            //     .collect_vec();
+
             let conditions = dimensions_for_join
                 .iter()
                 .map(|dim| {
-                    (0..i)
-                        .map(|left_i| {
-                            let left_alias = format!("q_{}", left_i);
-                            let alias_in_left_query = left_schema.resolve_member_alias(dim);
-                            let left_ref = Expr::Reference(QualifiedColumnName::new(
-                                Some(left_alias.clone()),
-                                alias_in_left_query,
-                            ));
-                            let alias_in_right_query = right_schema.resolve_member_alias(dim);
-                            let right_ref = Expr::Reference(QualifiedColumnName::new(
-                                Some(right_alias.clone()),
-                                alias_in_right_query,
-                            ));
-                            (left_ref, right_ref)
+                    // Create left expression - use coalesce only if we have more than one left query
+                    let left_expr = if i > 1 {
+                        // Create coalesce arguments for all left queries (q_0 to q_{i-1})
+                        let coalesce_args: Vec<Expr> = (0..i)
+                            .map(|left_i| {
+                                let left_alias = format!("q_{}", left_i);
+                                let alias_in_left_query = left_schema.resolve_member_alias(dim);
+                                Expr::Reference(QualifiedColumnName::new(
+                                    Some(left_alias),
+                                    alias_in_left_query,
+                                ))
+                            })
+                            .collect();
+
+                        // Create the coalesce function expression
+                        Expr::Function(expression::FunctionExpression {
+                            function: "coalesce".to_string(),
+                            arguments: coalesce_args,
                         })
-                        .collect::<Vec<_>>()
+                    } else {
+                        // Single dimension - use simple reference
+                        let left_alias = format!("q_0");
+                        let alias_in_left_query = left_schema.resolve_member_alias(dim);
+                        Expr::Reference(QualifiedColumnName::new(
+                            Some(left_alias),
+                            alias_in_left_query,
+                        ))
+                    };
+
+                    // Create the right reference
+                    let alias_in_right_query = right_schema.resolve_member_alias(dim);
+                    let right_ref = Expr::Reference(QualifiedColumnName::new(
+                        Some(right_alias.clone()),
+                        alias_in_right_query,
+                    ));
+
+                    // Return a vector with a single condition pair to maintain Vec<Vec<(Expr, Expr)>> structure
+                    vec![(left_expr, right_ref)]
                 })
                 .collect_vec();
             let on = JoinCondition::new_dimension_join(conditions, true);
