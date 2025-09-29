@@ -171,7 +171,10 @@ export class MysqlQuery extends BaseQuery {
     templates.quotes.escape = '\\`';
     // NOTE: this template contains a comma; two order expressions are being generated
     templates.expressions.sort = '{{ expr }} IS NULL {% if nulls_first %}DESC{% else %}ASC{% endif %}, {{ expr }} {% if asc %}ASC{% else %}DESC{% endif %}';
-    delete templates.expressions.ilike;
+    // delete templates.expressions.ilike;
+    templates.expressions.ilike = ' {% if negated %}NOT {% endif %} ILIKE( {{ expr }}, {{ pattern }}) ';
+    templates.tesseract.ilike = ' {% if negated %}NOT {% endif %} ILIKE( {{ expr }}, {{ pattern }}) ';
+    templates.filters.like_pattern = ' CONCAT( {% if start_wild %}\'%\' , {% endif %}{{ value }}{% if end_wild %} , \'%\'{% endif %} ) ';
     templates.types.string = 'VARCHAR';
     templates.types.boolean = 'TINYINT';
     templates.types.timestamp = 'DATETIME';
