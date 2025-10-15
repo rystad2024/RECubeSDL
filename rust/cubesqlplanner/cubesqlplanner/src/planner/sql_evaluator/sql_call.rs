@@ -76,6 +76,27 @@ impl SqlCall {
         deps
     }
 
+    /// Checks if this SQL call represents a constant "1 = 1" or "1=1" expression
+    pub fn is_constant_one_equals_one(&self, base_tools: Rc<dyn BaseTools>) -> Result<bool, CubeError> {
+        // Check if there are no member symbol dependencies
+        if !self.get_dependencies().is_empty() {
+            return Ok(false);
+        }
+
+        // Try to evaluate the SQL using the ref check evaluator (handles CUBE context)
+        let args = self
+            .deps
+            .iter()
+            .map(|d| self.evaluate_single_dep_for_ref_check(&d, base_tools.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let sql = self.member_sql.call(args)?;
+        let trimmed = sql.trim().replace(" ", "");
+
+        // Check if it's "1=1" (with or without spaces)
+        Ok(trimmed == "1=1")
+    }
+
     pub fn get_dependencies_with_path(&self) -> Vec<(Rc<MemberSymbol>, Vec<String>)> {
         let mut deps = Vec::new();
         self.extract_symbol_deps_with_path(&mut deps);

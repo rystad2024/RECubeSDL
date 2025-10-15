@@ -9,6 +9,7 @@ use crate::planner::sql_evaluator::symbols::CalendarDimensionTimeShift;
 use crate::planner::sql_evaluator::ReferencesBuilder;
 use crate::planner::sql_evaluator::{DimensionTimeShift, MemberSymbol};
 use crate::planner::sql_templates::PlanSqlTemplates;
+use crate::planner::BaseCube;
 use crate::planner::BaseMemberHelper;
 use crate::planner::SqlJoinCondition;
 use crate::planner::{BaseMember, MemberSymbolRef};
@@ -149,6 +150,7 @@ impl PhysicalPlanBuilder {
                 context,
                 &logical_plan.dimension_subqueries,
                 &mut render_references,
+                &logical_plan.schema,
             )?,
             SimpleQuerySource::PreAggregation(pre_aggregation) => {
                 let res = self.process_pre_aggregation(
@@ -691,6 +693,7 @@ impl PhysicalPlanBuilder {
         context: &PhysicalPlanBuilderContext,
         dimension_subqueries: &Vec<Rc<DimensionSubQuery>>,
         render_references: &mut HashMap<String, QualifiedColumnName>,
+        schema: &LogicalSchema,
     ) -> Result<Rc<From>, CubeError> {
         let root = logical_join.root.cube.clone();
         if logical_join.joins.is_empty() && dimension_subqueries.is_empty() {
@@ -717,14 +720,50 @@ impl PhysicalPlanBuilder {
             for join in logical_join.joins.iter() {
                 match join {
                     LogicalJoinItem::CubeJoinItem(CubeJoinItem { cube, on_sql }) => {
-                        join_builder.left_join_cube(
-                            cube.cube.clone(),
-                            Some(cube.cube.default_alias_with_prefix(&context.alias_prefix)),
-                            JoinCondition::new_base_join(SqlJoinCondition::try_new(
-                                self.query_tools.clone(),
-                                on_sql.clone(),
-                            )?),
-                        );
+                        let condition = SqlJoinCondition::try_new(self.query_tools.clone(), on_sql.clone())?;
+                        let cube_alias = cube.cube.default_alias_with_prefix(&context.alias_prefix);
+
+                        // Detect "1 = 1" or "1=1" constant conditions
+                        if on_sql.is_constant_one_equals_one(self.query_tools.base_tools().clone())? {
+                            // Get dimensions from this cube that are in the query schema
+                            let cube_dimensions: Vec<_> = schema
+                                .all_dimensions()
+                                .filter(|dim| &dim.cube_name() == cube.cube.name())
+                                .cloned()
+                                .collect();
+
+                            // Create SELECT DISTINCT subquery with only referenced dimensions
+                            let distinct_subquery = self.create_distinct_dimensions_subquery(
+                                &cube.cube,
+                                &cube_alias,
+                                &cube_dimensions,
+                                context
+                            )?;
+
+                            // Set up render references to use the subquery alias
+                            for dim in cube_dimensions.iter() {
+                                let member_ref: Rc<dyn BaseMember> =
+                                    MemberSymbolRef::try_new(dim.clone(), self.query_tools.clone())?;
+                                let column_alias = member_ref.alias_name();
+                                render_references.insert(
+                                    dim.full_name(),
+                                    QualifiedColumnName::new(Some(cube_alias.clone()), column_alias),
+                                );
+                            }
+
+                            join_builder.left_join_subselect(
+                                distinct_subquery,
+                                cube_alias.clone(),
+                                JoinCondition::new_base_join(condition),
+                            );
+                        } else {
+                            join_builder.left_join_cube(
+                                cube.cube.clone(),
+                                Some(cube_alias.clone()),
+                                JoinCondition::new_base_join(condition),
+                            );
+                        }
+
                         for dimension_subquery in dimension_subqueries
                             .iter()
                             .filter(|d| &d.subquery_dimension.cube_name() == cube.cube.name())
@@ -940,11 +979,18 @@ impl PhysicalPlanBuilder {
         context: &PhysicalPlanBuilderContext,
     ) -> Result<Rc<Select>, CubeError> {
         let mut render_references = HashMap::new();
+        let empty_schema = LogicalSchema {
+            time_dimensions: Vec::new(),
+            dimensions: Vec::new(),
+            measures: Vec::new(),
+            multiplied_measures: HashSet::new(),
+        };
         let from = self.process_logical_join(
             &measure_subquery.source,
             context,
             &measure_subquery.dimension_subqueries,
             &mut render_references,
+            &empty_schema,
         )?;
         let mut context_factory = context.make_sql_nodes_factory();
         let mut select_builder = SelectBuilder::new(from);
@@ -988,11 +1034,18 @@ impl PhysicalPlanBuilder {
 
         let mut context = context.clone();
         context.alias_prefix = alias_prefix;
+        let empty_schema = LogicalSchema {
+            time_dimensions: Vec::new(),
+            dimensions: Vec::new(),
+            measures: Vec::new(),
+            multiplied_measures: HashSet::new(),
+        };
         let source = self.process_logical_join(
             &keys_subquery.source,
             &context,
             &keys_subquery.dimension_subqueries,
             &mut render_references,
+            &empty_schema,
         )?;
         let mut select_builder = SelectBuilder::new(source);
         for member in keys_subquery
@@ -1088,11 +1141,18 @@ impl PhysicalPlanBuilder {
         context: &PhysicalPlanBuilderContext,
     ) -> Result<Rc<QueryPlan>, CubeError> {
         let mut render_references = HashMap::new();
+        let empty_schema = LogicalSchema {
+            time_dimensions: Vec::new(),
+            dimensions: Vec::new(),
+            measures: Vec::new(),
+            multiplied_measures: HashSet::new(),
+        };
         let from = self.process_logical_join(
             &get_date_range.source,
             context,
             &get_date_range.dimension_subqueries,
             &mut render_references,
+            &empty_schema,
         )?;
         let mut select_builder = SelectBuilder::new(from);
         let mut context_factory = context.make_sql_nodes_factory();
@@ -1422,5 +1482,33 @@ impl PhysicalPlanBuilder {
         context_factory.set_render_references(render_references);
         let select = Rc::new(select_builder.build(context_factory));
         Ok(Rc::new(QueryPlan::Select(select)))
+    }
+
+    /// Creates a SELECT DISTINCT subquery with specific dimensions from a cube
+    /// Used when joining with constant conditions like "1 = 1" to avoid cartesian products
+    fn create_distinct_dimensions_subquery(
+        &self,
+        cube: &Rc<BaseCube>,
+        cube_alias: &str,
+        dimensions: &Vec<Rc<MemberSymbol>>,
+        context: &PhysicalPlanBuilderContext,
+    ) -> Result<Rc<Select>, CubeError> {
+        // Create FROM clause pointing to the cube
+        let from = From::new_from_cube(cube.clone(), Some(cube_alias.to_string()));
+        let mut select_builder = SelectBuilder::new(from);
+
+        // Add only the specified dimensions as projections using default aliases
+        for dim in dimensions.iter() {
+            let member_ref: Rc<dyn BaseMember> =
+                MemberSymbolRef::try_new(dim.clone(), self.query_tools.clone())?;
+            // Use default alias (None) which will use member.alias_name()
+            select_builder.add_projection_member(&member_ref, None);
+        }
+
+        // Set DISTINCT to avoid cartesian product
+        select_builder.set_distinct();
+
+        let context_factory = context.make_sql_nodes_factory();
+        Ok(Rc::new(select_builder.build(context_factory)))
     }
 }
