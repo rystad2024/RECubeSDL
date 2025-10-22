@@ -908,6 +908,25 @@ impl QueryProperties {
             }
         }
 
+        // TODO: Validate if this approach is fine in the longer run
+        // Deduplicate measures to avoid same measure appearing multiple times
+        // when calculated measures reference other calculated measures
+        result.regular_measures = result
+            .regular_measures
+            .into_iter()
+            .unique_by(|m| m.full_name())
+            .collect_vec();
+        result.multiplied_measures = result
+            .multiplied_measures
+            .into_iter()
+            .unique_by(|m| m.measure().full_name())
+            .collect_vec();
+        result.multi_stage_measures = result
+            .multi_stage_measures
+            .into_iter()
+            .unique_by(|m| m.full_name())
+            .collect_vec();
+
         Ok(result)
     }
 
