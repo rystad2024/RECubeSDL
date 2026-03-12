@@ -138,6 +138,10 @@ export class PreAggregations {
 
   private preAggregationCubes(): string[] {
     const { join } = this.query;
+    if (!join) {
+      // This can happen with Tesseract, or when there's no cubes to join
+      return [];
+    }
     return join.joins.map(j => j.originalTo).concat([join.root]);
   }
 

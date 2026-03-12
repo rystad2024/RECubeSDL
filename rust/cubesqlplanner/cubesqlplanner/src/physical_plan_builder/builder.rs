@@ -145,8 +145,6 @@ impl PhysicalPlanBuilder {
         let mut dimensions_references = HashMap::new();
         let mut context_factory = context.make_sql_nodes_factory();
 
-        // Get filter before processing join
-        let filter_for_join = logical_plan.filter.all_filters();
 
         let (from, applied_filter_items) = match &logical_plan.source {
             SimpleQuerySource::LogicalJoin(join) => self.process_logical_join(
@@ -155,7 +153,7 @@ impl PhysicalPlanBuilder {
                 &logical_plan.dimension_subqueries,
                 &mut render_references,
                 &logical_plan.schema,
-                filter_for_join,
+                logical_plan.filter.all_filters(),
             )?,
             SimpleQuerySource::PreAggregation(pre_aggregation) => {
                 let res = self.process_pre_aggregation(
@@ -870,99 +868,78 @@ impl PhysicalPlanBuilder {
         context: &PhysicalPlanBuilderContext,
     ) -> Result<Rc<Select>, CubeError> {
         let mut render_references = HashMap::new();
-        let keys_query =
-            self.process_keys_sub_query(&aggregate_multiplied_subquery.keys_subquery, context)?;
+        let keys_subquery = &aggregate_multiplied_subquery.keys_subquery;
+        let _primary_keys_dimensions = &keys_subquery.primary_keys_dimensions;
+        let _pk_cube = aggregate_multiplied_subquery.pk_cube.clone();
 
-        let keys_query_alias = format!("keys");
-
-        let mut join_builder =
-            JoinBuilder::new_from_subselect(keys_query.clone(), keys_query_alias.clone());
-
-        let mut context_factory = context.make_sql_nodes_factory();
-        let primary_keys_dimensions = &aggregate_multiplied_subquery
-            .keys_subquery
-            .primary_keys_dimensions;
-        let pk_cube = aggregate_multiplied_subquery.pk_cube.clone();
-        let pk_cube_alias = pk_cube
-            .cube
-            .default_alias_with_prefix(&Some(format!("{}_key", pk_cube.cube.default_alias())));
-        match aggregate_multiplied_subquery.source.as_ref() {
+        // Build FROM directly without keys pattern wrapper
+        let (from, applied_filter_items) = match aggregate_multiplied_subquery.source.as_ref() {
             AggregateMultipliedSubquerySouce::Cube => {
-                let conditions = primary_keys_dimensions
-                    .iter()
-                    .map(|dim| -> Result<_, CubeError> {
-                        let member_ref = dim.clone().as_base_member(self.query_tools.clone())?;
-                        let alias_in_keys_query =
-                            keys_query.schema().resolve_member_alias(&member_ref);
-                        let keys_query_ref = Expr::Reference(QualifiedColumnName::new(
-                            Some(keys_query_alias.clone()),
-                            alias_in_keys_query,
-                        ));
-                        let pk_cube_expr = Expr::Member(MemberExpression::new(member_ref.clone()));
-                        Ok(vec![(keys_query_ref, pk_cube_expr)])
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                // Build directly from cube with dimensions and measures, no keys wrapper
+                eprintln!("[PERF] Building from Cube source directly");
 
-                join_builder.left_join_cube(
-                    pk_cube.cube.clone(),
-                    Some(pk_cube_alias.clone()),
-                    JoinCondition::new_dimension_join(conditions, false),
-                );
-                for dimension_subquery in aggregate_multiplied_subquery.dimension_subqueries.iter()
-                {
-                    self.add_subquery_join(
-                        dimension_subquery.clone(),
-                        &mut join_builder,
-                        &mut render_references,
-                        context,
-                    )?;
-                }
+                let mut build_context = context.clone();
+                build_context.alias_prefix = Some(format!(
+                    "{}_key",
+                    self.query_tools.alias_for_cube(&keys_subquery.key_cube_name)?
+                ));
+
+                // Build schema with dimensions AND measures (not just keys)
+                let schema = LogicalSchema {
+                    time_dimensions: keys_subquery.time_dimensions.clone(),
+                    dimensions: keys_subquery.dimensions.clone(),
+                    measures: aggregate_multiplied_subquery.schema.measures.clone(),
+                    multiplied_measures: aggregate_multiplied_subquery.schema.multiplied_measures.clone(),
+                };
+
+                // Process logical join with dimension subqueries
+                let (source, applied_filter_items) = self.process_logical_join(
+                    &keys_subquery.source,
+                    &build_context,
+                    &keys_subquery.dimension_subqueries,
+                    &mut render_references,
+                    &schema,
+                    keys_subquery.filter.all_filters(),
+                )?;
+
+                eprintln!("[PERF] Cube source built, no self-join needed");
+                (source, applied_filter_items)
             }
             AggregateMultipliedSubquerySouce::MeasureSubquery(measure_subquery) => {
-                let subquery = self.process_measure_subquery(&measure_subquery, context)?;
-                let conditions = primary_keys_dimensions
-                    .iter()
-                    .map(|dim| -> Result<_, CubeError> {
-                        let dim_ref = dim.clone().as_base_member(self.query_tools.clone())?;
-                        let alias_in_keys_query =
-                            keys_query.schema().resolve_member_alias(&dim_ref);
-                        let keys_query_ref = Expr::Reference(QualifiedColumnName::new(
-                            Some(keys_query_alias.clone()),
-                            alias_in_keys_query,
-                        ));
-                        let alias_in_measure_subquery =
-                            subquery.schema().resolve_member_alias(&dim_ref);
-                        let measure_subquery_ref = Expr::Reference(QualifiedColumnName::new(
-                            Some(pk_cube_alias.clone()),
-                            alias_in_measure_subquery,
-                        ));
-                        Ok(vec![(keys_query_ref, measure_subquery_ref)])
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let mut ungrouped_measure_references = HashMap::new();
-                for meas in aggregate_multiplied_subquery.schema.measures.iter() {
-                    ungrouped_measure_references.insert(
-                        meas.full_name(),
-                        QualifiedColumnName::new(
-                            Some(pk_cube_alias.clone()),
-                            subquery.schema().resolve_member_alias(
-                                &meas.clone().as_base_member(self.query_tools.clone())?,
-                            ),
-                        ),
-                    );
-                }
+                // Build measure subquery with query dimensions included (no separate dims query)
+                eprintln!("[PERF] Building from MeasureSubquery source with dimensions");
 
-                context_factory.set_ungrouped_measure_references(ungrouped_measure_references);
+                let mut build_context = context.clone();
+                build_context.alias_prefix = Some(format!(
+                    "{}_key",
+                    self.query_tools.alias_for_cube(&keys_subquery.key_cube_name)?
+                ));
 
-                join_builder.left_join_subselect(
-                    subquery,
-                    pk_cube_alias.clone(),
-                    JoinCondition::new_dimension_join(conditions, false),
-                );
+                // Build schema with query dimensions AND measures together
+                let combined_schema = LogicalSchema {
+                    time_dimensions: keys_subquery.time_dimensions.clone(),
+                    dimensions: keys_subquery.dimensions.clone(),
+                    measures: aggregate_multiplied_subquery.schema.measures.clone(),
+                    multiplied_measures: aggregate_multiplied_subquery.schema.multiplied_measures.clone(),
+                };
+
+                // Use keys_subquery.source (has query dimension joins) instead of measure_subquery.source
+                // This ensures all query dimensions are properly joined
+                let (source, applied_filter_items) = self.process_logical_join(
+                    &keys_subquery.source,
+                    &build_context,
+                    &keys_subquery.dimension_subqueries,
+                    &mut render_references,
+                    &combined_schema,
+                    keys_subquery.filter.all_filters(),
+                )?;
+
+                eprintln!("[PERF] MeasureSubquery built with dimensions, no self-join");
+                (source, applied_filter_items)
             }
-        }
+        };
 
-        let from = From::new_from_join(join_builder.build());
+        // Build SELECT with dimensions + measures, GROUP BY (same as before)
         let references_builder = ReferencesBuilder::new(from.clone());
         let mut select_builder = SelectBuilder::new(from.clone());
         let mut group_by = Vec::new();
@@ -993,7 +970,18 @@ impl PhysicalPlanBuilder {
                 None,
             );
         }
+
+        // GROUP BY replaces DISTINCT - this is the key optimization
         select_builder.set_group_by(group_by);
+
+        // Apply filters that weren't handled in dimension subqueries
+        let filter = self.remove_filter_items(
+            keys_subquery.filter.all_filters(),
+            &applied_filter_items,
+        );
+        select_builder.set_filter(filter);
+
+        let mut context_factory = context.make_sql_nodes_factory();
         context_factory.set_render_references(render_references);
         context_factory.set_rendered_as_multiplied_measures(
             aggregate_multiplied_subquery
@@ -1004,6 +992,7 @@ impl PhysicalPlanBuilder {
         Ok(Rc::new(select_builder.build(context_factory)))
     }
 
+    #[allow(dead_code)]
     fn process_measure_subquery(
         &self,
         measure_subquery: &Rc<MeasureSubquery>,
@@ -1052,6 +1041,7 @@ impl PhysicalPlanBuilder {
         Ok(select)
     }
 
+    #[allow(dead_code)]
     fn process_keys_sub_query(
         &self,
         keys_subquery: &Rc<KeysSubQuery>,
@@ -1066,19 +1056,20 @@ impl PhysicalPlanBuilder {
 
         let mut context = context.clone();
         context.alias_prefix = alias_prefix;
-        let empty_schema = LogicalSchema {
-            time_dimensions: Vec::new(),
-            dimensions: Vec::new(),
+        // Build schema from dimensions that will be selected in keys subquery
+        let keys_schema = LogicalSchema {
+            time_dimensions: keys_subquery.time_dimensions.clone(),
+            dimensions: keys_subquery.dimensions.clone(),
             measures: Vec::new(),
             multiplied_measures: HashSet::new(),
         };
-        let (source, _) = self.process_logical_join(
+        let (source, applied_filter_items) = self.process_logical_join(
             &keys_subquery.source,
             &context,
             &keys_subquery.dimension_subqueries,
             &mut render_references,
-            &empty_schema,
-            None, // No filter for keys subquery
+            &keys_schema,
+            keys_subquery.filter.all_filters(), // Pass filter to handle 1=1 joins
         )?;
         let mut select_builder = SelectBuilder::new(source);
         for member in keys_subquery
@@ -1094,7 +1085,13 @@ impl PhysicalPlanBuilder {
         }
 
         select_builder.set_distinct();
-        select_builder.set_filter(keys_subquery.filter.all_filters());
+        // Remove filters that were applied in 1=1 subqueries
+        let filter = self.remove_filter_items(
+            keys_subquery.filter.all_filters(),
+            &applied_filter_items,
+        );
+        
+        select_builder.set_filter(filter);
         let mut context_factory = context.make_sql_nodes_factory();
         context_factory.set_render_references(render_references);
         let res = Rc::new(select_builder.build(context_factory));
@@ -1532,15 +1529,28 @@ impl PhysicalPlanBuilder {
             .collect()
     }
 
-    /// Removes specified filter items from a filter
+    /// Removes specified filter items from a filter by comparing member names
     fn remove_filter_items(&self, filter: Option<Filter>, items_to_remove: &[FilterItem]) -> Option<Filter> {
         if let Some(mut filter) = filter {
             if items_to_remove.is_empty() {
                 return Some(filter);
             }
 
-            // Remove items that are in items_to_remove
-            filter.items.retain(|item| !items_to_remove.contains(item));
+            // Build a set of member full names from items_to_remove
+            let member_names_to_remove: std::collections::HashSet<String> = items_to_remove
+                .iter()
+                .flat_map(|item| item.all_member_evaluators())
+                .map(|m| m.full_name())
+                .collect();
+
+            // Remove items whose members are in the removal set
+            let mut evaluator_calls = 0;
+            filter.items.retain(|item| {
+                let item_members = item.all_member_evaluators();
+                evaluator_calls += 1;
+                // Keep the item if none of its members are in the removal set
+                !item_members.iter().any(|m| member_names_to_remove.contains(&m.full_name()))
+            });
 
             if filter.items.is_empty() {
                 None
