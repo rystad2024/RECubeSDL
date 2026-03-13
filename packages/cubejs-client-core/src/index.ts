@@ -47,7 +47,7 @@ export type LoadMethodOptions = {
    */
   progressCallback?(result: ProgressResult): void;
   /**
-   * Cache mode for query execution
+   * Server-side cache policy for query execution. Does not control client-side caching.
    */
   cache?: CacheMode;
   /**
@@ -152,13 +152,15 @@ let mutexCounter = 0;
 
 const MUTEX_ERROR = 'Mutex has been changed';
 
-function mutexPromise(promise: Promise<any>) {
+function mutexPromise<T>(promise: Promise<T>): Promise<T | null> {
   return promise
     .then((result) => result)
     .catch((error) => {
       if (error !== MUTEX_ERROR) {
         throw error;
       }
+
+      return null;
     });
 }
 
@@ -377,7 +379,7 @@ class CubeApi {
         body.error = text;
       }
 
-      if (body.error === 'Continue wait') {
+      if (body.error?.includes('Continue wait')) {
         await checkMutex();
         if (options?.progressCallback) {
           options.progressCallback(new ProgressResult(body as ProgressResponse));
@@ -414,7 +416,8 @@ class CubeApi {
       return subscribeNext();
     };
 
-    const promise = requestPromise.then(requestInstance => mutexPromise(requestInstance.subscribe(loadImpl)));
+    const promise: Promise<any> = requestPromise
+      .then(requestInstance => mutexPromise(requestInstance.subscribe(loadImpl)));
 
     if (callback) {
       return {
@@ -733,14 +736,20 @@ class CubeApi {
   public cubeSql(sqlQuery: string, options?: CubeSqlOptions, callback?: LoadMethodCallback<CubeSqlResult>): Promise<CubeSqlResult> | UnsubscribeObj {
     return this.loadMethod(
       () => {
-        const request = this.request('cubesql', {
+        const cubesqlParams: Record<string, unknown> = {
           query: sqlQuery,
-          cache: options?.cache,
           method: 'POST',
           signal: options?.signal,
           fetchTimeout: options?.timeout,
           baseRequestId: options?.baseRequestId,
-        });
+          throwContinueWait: true,
+        };
+
+        if (options?.cache) {
+          cubesqlParams.cache = options.cache;
+        }
+
+        const request = this.request('cubesql', cubesqlParams);
 
         return request;
       },

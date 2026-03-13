@@ -3,6 +3,30 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.6.22](https://github.com/cube-js/cube/compare/v1.6.21...v1.6.22) (2026-03-11)
+
+**Note:** Version bump only for package @cubejs-backend/schema-compiler
+
+## [1.6.21](https://github.com/cube-js/cube/compare/v1.6.20...v1.6.21) (2026-03-10)
+
+**Note:** Version bump only for package @cubejs-backend/schema-compiler
+
+## [1.6.20](https://github.com/cube-js/cube/compare/v1.6.19...v1.6.20) (2026-03-09)
+
+### Bug Fixes
+
+- **cube:** Issue with rollup pre-aggragations matching for views ([#10474](https://github.com/cube-js/cube/issues/10474)) ([7160283](https://github.com/cube-js/cube/commit/7160283c7dac5d5696cf683b8e59418e58453821))
+
+## [1.6.19](https://github.com/cube-js/cube/compare/v1.6.18...v1.6.19) (2026-03-03)
+
+**Note:** Version bump only for package @cubejs-backend/schema-compiler
+
+## [1.6.18](https://github.com/cube-js/cube/compare/v1.6.17...v1.6.18) (2026-03-02)
+
+### Features
+
+- **schema-compiler:** Add duplicate folder name and time shift validation ([#10423](https://github.com/cube-js/cube/issues/10423)) ([2000373](https://github.com/cube-js/cube/commit/200037317fc1f90edf169ce02d7967fa331a09f4))
+
 ## [1.6.17](https://github.com/cube-js/cube/compare/v1.6.16...v1.6.17) (2026-02-26)
 
 ### Bug Fixes
