@@ -169,7 +169,7 @@ describe('SQL API', () => {
       const execute = () => new Promise<void>((resolve, reject) => {
         const onData = jest.fn((chunk: Buffer) => {
           const chunkStr = chunk.toString('utf-8');
-          
+
           if (isFirstChunk) {
             isFirstChunk = false;
             const json = JSON.parse(chunkStr);
@@ -201,13 +201,13 @@ describe('SQL API', () => {
       });
 
       await execute();
-      
+
       // Verify schema was sent first
       expect(schemaReceived).toBe(true);
-      
+
       // Verify empty data was sent
       expect(emptyDataReceived).toBe(true);
-      
+
       // Verify no actual rows were returned
       const dataLines = data.split('\n').filter((it) => it.trim());
       if (dataLines.length > 0) {
@@ -216,6 +216,29 @@ describe('SQL API', () => {
           .reduce((a, b) => a + b, 0);
         expect(rows).toBe(0);
       }
+    });
+
+    it('includes format in schema columns', async () => {
+      const response = await fetch(`${birdbox.configuration.apiUrl}/cubesql`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: token,
+        },
+        body: JSON.stringify({
+          query: 'SELECT DATE_TRUNC(\'year\', createdAt) AS createdAt, totalAmount, numberTotal, status FROM Orders LIMIT 1',
+        }),
+      });
+
+      const text = await response.text();
+      const { schema } = JSON.parse(text.split('\n')[0]);
+
+      expect(schema).toEqual([
+        { name: 'createdAt', column_type: 'Timestamp', format: { type: 'custom-time', value: '%Y-%m-%d' } },
+        { name: 'totalAmount', column_type: 'Double', format: 'currency', currency: 'USD' },
+        { name: 'numberTotal', column_type: 'Double', format: { type: 'custom-numeric', value: '$,.2f' } },
+        { name: 'status', column_type: 'String' },
+      ]);
     });
 
     describe('sql4sql', () => {
@@ -955,6 +978,38 @@ filter_subq AS (
 
       const res = await connection.query(query);
       expect(res.rows).toMatchSnapshot('measure-with-ad-hoc-filters-and-original-measure');
+    });
+
+    test('measure in view with ad-hoc filter', async () => {
+      const query = `
+      SELECT
+        SUM(CASE
+          WHEN status = 'processed' THEN totalAmount
+        END) AS new_amount,
+        AVG(CASE
+          WHEN status = 'processed' THEN avgAmount
+        END) AS new_avg_amount,
+        MIN(CASE
+          WHEN status = 'processed' THEN minAmount
+        END) AS new_min_amount,
+        MAX(CASE
+          WHEN status = 'processed' THEN maxAmount
+        END) AS new_max_amount,
+        COUNT(DISTINCT CASE
+          WHEN status = 'shipped' THEN orderCount
+        END) AS new_count_distinct
+        
+        /* Works but testing Postgres does not include "hll_hash_any" function
+        APPROX_DISTINCT(CASE
+          WHEN status = 'shipped' THEN approxOrderCount
+        END) AS new_approx_distinct
+        */
+      FROM
+        OrdersView
+      `;
+
+      const res = await connection.query(query);
+      expect(res.rows).toMatchSnapshot('measure-in-view-with-ad-hoc-filters');
     });
 
     /// Query references `updatedAt` in three places: in outer projection, in grouping key and in window

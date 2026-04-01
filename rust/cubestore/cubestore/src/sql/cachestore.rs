@@ -327,6 +327,7 @@ impl CacheStoreSqlService {
                 priority,
                 orphaned,
                 value,
+                external_id,
             } => {
                 if exclusive && context.process_id.is_none() {
                     return Err(CubeError::user(
@@ -344,6 +345,7 @@ impl CacheStoreSqlService {
                         orphaned,
                         process_id: context.process_id.clone(),
                         exclusive,
+                        external_id,
                     })
                     .await?;
 
@@ -524,8 +526,9 @@ impl CacheStoreSqlService {
                     true,
                 )
             }
-            QueueCommand::Result { key } => {
-                let ack_result = self.cachestore.queue_result_by_path(key.value).await?;
+            QueueCommand::Result { key, external_id } => {
+                let ack_result = self.cachestore.queue_result(key, external_id).await?;
+
                 let rows = if let Some(ack_result) = ack_result {
                     vec![ack_result.into_queue_result_row()]
                 } else {
@@ -537,6 +540,34 @@ impl CacheStoreSqlService {
                         vec![
                             Column::new("payload".to_string(), ColumnType::String, 0),
                             Column::new("type".to_string(), ColumnType::String, 1),
+                            Column::new("id".to_string(), ColumnType::String, 2),
+                            Column::new("external_id".to_string(), ColumnType::String, 3),
+                        ],
+                        rows,
+                    )),
+                    None,
+                    true,
+                )
+            }
+            QueueCommand::ResultByExternalId { key } => {
+                let ack_result = self
+                    .cachestore
+                    .queue_result_by_external_id(key.value)
+                    .await?;
+
+                let rows = if let Some(ack_result) = ack_result {
+                    vec![ack_result.into_queue_result_row()]
+                } else {
+                    vec![]
+                };
+
+                (
+                    Arc::new(DataFrame::new(
+                        vec![
+                            Column::new("payload".to_string(), ColumnType::String, 0),
+                            Column::new("type".to_string(), ColumnType::String, 1),
+                            Column::new("id".to_string(), ColumnType::String, 2),
+                            Column::new("external_id".to_string(), ColumnType::String, 3),
                         ],
                         rows,
                     )),
@@ -558,6 +589,8 @@ impl CacheStoreSqlService {
                         vec![
                             Column::new("payload".to_string(), ColumnType::String, 0),
                             Column::new("type".to_string(), ColumnType::String, 1),
+                            Column::new("id".to_string(), ColumnType::String, 2),
+                            Column::new("external_id".to_string(), ColumnType::String, 3),
                         ],
                         rows,
                     )),

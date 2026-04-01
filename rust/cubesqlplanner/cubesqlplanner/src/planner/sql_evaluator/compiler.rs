@@ -18,19 +18,13 @@ use cubenativeutils::CubeError;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum CacheSymbolType {
-    Dimension,
-    Measure,
-    Segment,
-}
-
 pub struct Compiler {
     cube_evaluator: Rc<dyn CubeEvaluator>,
     base_tools: Rc<dyn BaseTools>,
     security_context: Rc<dyn SecurityContext>,
     timezone: Tz,
-    members: HashMap<(CacheSymbolType, String), Rc<MemberSymbol>>,
+    member_to_alias: Option<HashMap<String, String>>,
+    members: HashMap<SymbolPath, Rc<MemberSymbol>>,
     cube_names: HashMap<Vec<String>, Rc<CubeNameSymbol>>,
     cube_tables: HashMap<Vec<String>, Rc<CubeTableSymbol>>,
 }
@@ -41,12 +35,14 @@ impl Compiler {
         base_tools: Rc<dyn BaseTools>,
         security_context: Rc<dyn SecurityContext>,
         timezone: Tz,
+        member_to_alias: Option<HashMap<String, String>>,
     ) -> Self {
         Self {
             cube_evaluator,
             security_context,
             base_tools,
             timezone,
+            member_to_alias,
             members: HashMap::new(),
             cube_names: HashMap::new(),
             cube_tables: HashMap::new(),
@@ -81,12 +77,12 @@ impl Compiler {
         &mut self,
         path: SymbolPath,
     ) -> Result<Rc<MemberSymbol>, CubeError> {
-        if let Some(exists) = self.exists_member(CacheSymbolType::Measure, &path.cache_name()) {
+        if let Some(exists) = self.members.get(&path) {
             Ok(exists.clone())
         } else {
-            let result =
-                MeasureSymbolFactory::try_new(path, self.cube_evaluator.clone())?.build(self)?;
-            self.validate_and_cache_result(CacheSymbolType::Measure, result.clone())?;
+            let result = MeasureSymbolFactory::try_new(path.clone(), self.cube_evaluator.clone())?
+                .build(self)?;
+            self.validate_and_cache_result(path, result.clone())?;
             Ok(result)
         }
     }
@@ -110,12 +106,13 @@ impl Compiler {
         &mut self,
         path: SymbolPath,
     ) -> Result<Rc<MemberSymbol>, CubeError> {
-        if let Some(exists) = self.exists_member(CacheSymbolType::Dimension, &path.cache_name()) {
+        if let Some(exists) = self.members.get(&path) {
             Ok(exists.clone())
         } else {
             let result =
-                DimensionSymbolFactory::try_new(path, self.cube_evaluator.clone())?.build(self)?;
-            self.validate_and_cache_result(CacheSymbolType::Dimension, result.clone())?;
+                DimensionSymbolFactory::try_new(path.clone(), self.cube_evaluator.clone())?
+                    .build(self)?;
+            self.validate_and_cache_result(path, result.clone())?;
             Ok(result)
         }
     }
@@ -129,14 +126,15 @@ impl Compiler {
         &mut self,
         path: SymbolPath,
     ) -> Result<Rc<MemberSymbol>, CubeError> {
-        let full_name = path.full_name().clone();
-        if let Some(exists) = self.exists_member(CacheSymbolType::Segment, &full_name) {
+        if let Some(exists) = self.members.get(&path) {
             return Ok(exists.clone());
         }
+        let full_name = path.full_name().clone();
         let definition = self.cube_evaluator.segment_by_path(full_name.clone())?;
         let sql_call = self.compile_sql_call(path.cube_name(), definition.sql()?)?;
-        let alias =
-            PlanSqlTemplates::member_alias_name(path.cube_name(), path.symbol_name(), &None);
+        let alias = self.alias_for_member(&full_name).unwrap_or_else(|| {
+            PlanSqlTemplates::member_alias_name(path.cube_name(), path.symbol_name(), &None)
+        });
         let cube_symbol = self.add_cube_table_evaluator(path.cube_name().clone(), vec![])?;
         let symbol = MemberExpressionSymbol::try_new(
             cube_symbol,
@@ -147,8 +145,7 @@ impl Compiler {
             path.path().clone(),
         )?;
         let result = MemberSymbol::new_member_expression(symbol);
-        let key = (CacheSymbolType::Segment, full_name);
-        self.members.insert(key, result.clone());
+        self.members.insert(path, result.clone());
         Ok(result)
     }
 
@@ -198,6 +195,12 @@ impl Compiler {
         self.timezone.clone()
     }
 
+    pub fn alias_for_member(&self, full_name: &str) -> Option<String> {
+        self.member_to_alias
+            .as_ref()
+            .and_then(|m| m.get(full_name).cloned())
+    }
+
     pub fn compile_sql_call(
         &mut self,
         cube_name: &String,
@@ -213,23 +216,13 @@ impl Compiler {
         Ok(Rc::new(sql_call))
     }
 
-    fn exists_member(
-        &self,
-        symbol_type: CacheSymbolType,
-        full_name: &String,
-    ) -> Option<Rc<MemberSymbol>> {
-        let key = (symbol_type, full_name.clone());
-        self.members.get(&key).cloned()
-    }
-
     fn validate_and_cache_result(
         &mut self,
-        symbol_type: CacheSymbolType,
+        path: SymbolPath,
         node: Rc<MemberSymbol>,
     ) -> Result<(), CubeError> {
         node.validate()?;
-        let key = (symbol_type, node.full_name().clone());
-        self.members.insert(key, node.clone());
+        self.members.insert(path, node);
         Ok(())
     }
 }

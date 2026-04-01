@@ -3,6 +3,40 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.6.30](https://github.com/cube-js/cube/compare/v1.6.29...v1.6.30) (2026-04-01)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore-driver
+
+## [1.6.29](https://github.com/cube-js/cube/compare/v1.6.28...v1.6.29) (2026-03-27)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore-driver
+
+## [1.6.28](https://github.com/cube-js/cube/compare/v1.6.27...v1.6.28) (2026-03-25)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore-driver
+
+## [1.6.27](https://github.com/cube-js/cube/compare/v1.6.26...v1.6.27) (2026-03-24)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore-driver
+
+## [1.6.26](https://github.com/cube-js/cube/compare/v1.6.25...v1.6.26) (2026-03-23)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore-driver
+
+## [1.6.25](https://github.com/cube-js/cube/compare/v1.6.24...v1.6.25) (2026-03-20)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore-driver
+
+## [1.6.24](https://github.com/cube-js/cube/compare/v1.6.23...v1.6.24) (2026-03-18)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore-driver
+
+## [1.6.23](https://github.com/cube-js/cube/compare/v1.6.22...v1.6.23) (2026-03-13)
+
+### Features
+
+- **cubestore-driver:** Queue - use exclusive flag with new Cube Store ([#10488](https://github.com/cube-js/cube/issues/10488)) ([c6462e4](https://github.com/cube-js/cube/commit/c6462e478bcb8a8b2caccc32787e52a8b2198852))
+
 ## [1.6.22](https://github.com/cube-js/cube/compare/v1.6.21...v1.6.22) (2026-03-11)
 
 **Note:** Version bump only for package @cubejs-backend/cubestore-driver

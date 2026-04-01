@@ -3,6 +3,58 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.6.30](https://github.com/cube-js/cube/compare/v1.6.29...v1.6.30) (2026-04-01)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore
+
+## [1.6.29](https://github.com/cube-js/cube/compare/v1.6.28...v1.6.29) (2026-03-27)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore
+
+## [1.6.28](https://github.com/cube-js/cube/compare/v1.6.27...v1.6.28) (2026-03-25)
+
+### Bug Fixes
+
+- **cubestore:** Respect nulls for unique indexes with skip ([#10553](https://github.com/cube-js/cube/issues/10553)) ([e27868c](https://github.com/cube-js/cube/commit/e27868c62f46d94b958bf5a33718c15eaa7fdec8))
+
+### Features
+
+- **cubestore:** Partition distribution for join ([#10480](https://github.com/cube-js/cube/issues/10480)) ([9da75cd](https://github.com/cube-js/cube/commit/9da75cdf0ef42efeb9288ea8b76f3a9d7488082e))
+
+## [1.6.27](https://github.com/cube-js/cube/compare/v1.6.26...v1.6.27) (2026-03-24)
+
+### Features
+
+- **cubestore:** Queue - allow path lookup, if there was miss on external_id ([#10543](https://github.com/cube-js/cube/issues/10543)) ([8fe8892](https://github.com/cube-js/cube/commit/8fe88921e22bbe2967d68c3a0ef379ae97533347))
+
+## [1.6.26](https://github.com/cube-js/cube/compare/v1.6.25...v1.6.26) (2026-03-23)
+
+### Features
+
+- **cubestore:** Queue - allow to specify EXTERNAL_ID for RESULT ([#10536](https://github.com/cube-js/cube/issues/10536)) ([52a0c21](https://github.com/cube-js/cube/commit/52a0c21175a93c91ded63fecbe255b0d7c3252be))
+
+## [1.6.25](https://github.com/cube-js/cube/compare/v1.6.24...v1.6.25) (2026-03-20)
+
+### Bug Fixes
+
+- **cubestore:** Queue - filter expired queue_results ([#10527](https://github.com/cube-js/cube/issues/10527)) ([fc51856](https://github.com/cube-js/cube/commit/fc5185672cab1199683422e5bddbaba663a1ef38))
+
+### Features
+
+- **cubestore:** Queue - introduce external_id support ([#10507](https://github.com/cube-js/cube/issues/10507)) ([73f17b7](https://github.com/cube-js/cube/commit/73f17b7117f740444e445cdfa6b96cc48ee00b44))
+- **cubestore:** Queue - support QUEUE RESULT by $id ([#10529](https://github.com/cube-js/cube/issues/10529)) ([ef98588](https://github.com/cube-js/cube/commit/ef9858857bd933559afe51d211a92fad9067bab0))
+
+## [1.6.24](https://github.com/cube-js/cube/compare/v1.6.23...v1.6.24) (2026-03-18)
+
+**Note:** Version bump only for package @cubejs-backend/cubestore
+
+## [1.6.23](https://github.com/cube-js/cube/compare/v1.6.22...v1.6.23) (2026-03-13)
+
+### Features
+
+- **cubestore-driver:** Queue - use exclusive flag with new Cube Store ([#10488](https://github.com/cube-js/cube/issues/10488)) ([c6462e4](https://github.com/cube-js/cube/commit/c6462e478bcb8a8b2caccc32787e52a8b2198852))
+- **cubestore:** Filter queue_list by process_id for exclusive items ([#10490](https://github.com/cube-js/cube/issues/10490)) ([8458998](https://github.com/cube-js/cube/commit/84589988b29410f07c213b81405a824f49c599bc))
+
 ## [1.6.22](https://github.com/cube-js/cube/compare/v1.6.21...v1.6.22) (2026-03-11)
 
 **Note:** Version bump only for package @cubejs-backend/cubestore

@@ -3,6 +3,63 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+## [1.6.30](https://github.com/cube-js/cube/compare/v1.6.29...v1.6.30) (2026-04-01)
+
+### Bug Fixes
+
+- **cube:** Quarter intervals in postgres ([#10580](https://github.com/cube-js/cube/issues/10580)) ([defc186](https://github.com/cube-js/cube/commit/defc186c39d447a24914e7b1d924095c8761dabf))
+- **tesseract:** Filter by multi-stage measure ([#10579](https://github.com/cube-js/cube/issues/10579)) ([4a4b67f](https://github.com/cube-js/cube/commit/4a4b67f50fcf6ced8ddb493ec90b3dc9f4c93b1e))
+- **tesseract:** Tesseract should respect convertTzForRawTimeDimension ([#10585](https://github.com/cube-js/cube/issues/10585)) ([515eeae](https://github.com/cube-js/cube/commit/515eeaef4abf554a3291b8a4d2603240281915a3))
+
+### Features
+
+- **cubesql:** Support PatchMeasure for view measures ([#10571](https://github.com/cube-js/cube/issues/10571)) ([3bfe812](https://github.com/cube-js/cube/commit/3bfe8121be684fb08e22e27efb59877734276dba))
+- **mssql-driver:** Support use named timezones ([#10582](https://github.com/cube-js/cube/issues/10582)) ([ee788f4](https://github.com/cube-js/cube/commit/ee788f4f843073eb26bf07e101f83084e653270f))
+
+## [1.6.29](https://github.com/cube-js/cube/compare/v1.6.28...v1.6.29) (2026-03-27)
+
+### Features
+
+- Expose alias for named numeric format ([#10568](https://github.com/cube-js/cube/issues/10568)) ([662bc58](https://github.com/cube-js/cube/commit/662bc581c38c87eddb40505dd1847f1f2c79bac9))
+- **schema-compiler:** Support currency for numeric measures and dimensions ([#10561](https://github.com/cube-js/cube/issues/10561)) ([5fc721f](https://github.com/cube-js/cube/commit/5fc721f98429cc46395673b03283c501a59c5cdd))
+- **schema-compiler:** Support predefined named numeric formats ([#10563](https://github.com/cube-js/cube/issues/10563)) ([f060f5c](https://github.com/cube-js/cube/commit/f060f5c6a8a8c5cfe1b06be79f4c189520d3453b))
+
+## [1.6.28](https://github.com/cube-js/cube/compare/v1.6.27...v1.6.28) (2026-03-25)
+
+**Note:** Version bump only for package @cubejs-backend/schema-compiler
+
+## [1.6.27](https://github.com/cube-js/cube/compare/v1.6.26...v1.6.27) (2026-03-24)
+
+**Note:** Version bump only for package @cubejs-backend/schema-compiler
+
+## [1.6.26](https://github.com/cube-js/cube/compare/v1.6.25...v1.6.26) (2026-03-23)
+
+**Note:** Version bump only for package @cubejs-backend/schema-compiler
+
+## [1.6.25](https://github.com/cube-js/cube/compare/v1.6.24...v1.6.25) (2026-03-20)
+
+**Note:** Version bump only for package @cubejs-backend/schema-compiler
+
+## [1.6.24](https://github.com/cube-js/cube/compare/v1.6.23...v1.6.24) (2026-03-18)
+
+### Bug Fixes
+
+- **schema-compiler:** Use isNotDistinctFrom() for ClickHouse Tesseract multi-fact joins ([#10494](https://github.com/cube-js/cube/issues/10494)) ([43429eb](https://github.com/cube-js/cube/commit/43429eb59f941036f6e4a7fa22ca670544bb2193)), closes [#10493](https://github.com/cube-js/cube/issues/10493)
+- **tesseract:** Incorrect ubounded rolling window without granularity ([#10508](https://github.com/cube-js/cube/issues/10508)) ([33a68a0](https://github.com/cube-js/cube/commit/33a68a02574c815c748dd5383c421621e220d68d))
+- **tesseract:** Measure with string type ends up with SUM aggregation ([#10516](https://github.com/cube-js/cube/issues/10516)) ([589d20f](https://github.com/cube-js/cube/commit/589d20fc5fb6b93c861e54b1df2901742146a75a))
+- **tesseract:** Subquery dimension in filter ([#10506](https://github.com/cube-js/cube/issues/10506)) ([58c0687](https://github.com/cube-js/cube/commit/58c06879b93110336740fc7792144ca1165239df))
+- **tesseract:** Tesseract should respect sql api aliases ([#10505](https://github.com/cube-js/cube/issues/10505)) ([d5f6351](https://github.com/cube-js/cube/commit/d5f635105de2e4e881f5ec8b6a073cb62b031295))
+
+### Features
+
+- **tesseract:** ClickHouse support ([#10515](https://github.com/cube-js/cube/issues/10515)) ([cbdc6e8](https://github.com/cube-js/cube/commit/cbdc6e80108f15320a11b8cb6340251ea704c1db))
+
+## [1.6.23](https://github.com/cube-js/cube/compare/v1.6.22...v1.6.23) (2026-03-13)
+
+### Features
+
+- Data access policy masking ([#10463](https://github.com/cube-js/cube/issues/10463)) ([4b0d1bf](https://github.com/cube-js/cube/commit/4b0d1bfe49d8dbd72a9df03718793179e20ed167))
+
 ## [1.6.22](https://github.com/cube-js/cube/compare/v1.6.21...v1.6.22) (2026-03-11)
 
 **Note:** Version bump only for package @cubejs-backend/schema-compiler
