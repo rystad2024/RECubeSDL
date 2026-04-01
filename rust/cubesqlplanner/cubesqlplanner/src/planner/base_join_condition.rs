@@ -28,3 +28,23 @@ impl BaseJoinCondition for SqlJoinCondition {
         evaluate_sql_call_with_context(&self.sql_call, context, templates)
     }
 }
+
+/// A join condition that always evaluates to true, used for unrelated dimension joins (cross joins).
+/// This is used when joining cubes that have no actual relationship (indicated by "1 = 1" join conditions).
+pub struct AlwaysTrueJoinCondition;
+
+impl AlwaysTrueJoinCondition {
+    pub fn new() -> Rc<Self> {
+        Rc::new(Self)
+    }
+}
+
+impl BaseJoinCondition for AlwaysTrueJoinCondition {
+    fn to_sql(
+        &self,
+        _context: Rc<VisitorContext>,
+        templates: &PlanSqlTemplates,
+    ) -> Result<String, CubeError> {
+        templates.always_true()
+    }
+}

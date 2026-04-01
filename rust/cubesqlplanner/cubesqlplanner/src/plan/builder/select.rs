@@ -9,7 +9,7 @@ use crate::planner::sql_evaluator::sql_nodes::SqlNodesFactory;
 use crate::planner::sql_evaluator::MemberSymbol;
 use crate::planner::VisitorContext;
 use cubenativeutils::CubeError;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 pub struct SelectBuilder {
@@ -24,6 +24,8 @@ pub struct SelectBuilder {
     limit: Option<usize>,
     offset: Option<usize>,
     result_schema: Schema,
+    /// Track added member full names to prevent duplicates (for unrelated joins)
+    added_members: HashSet<String>,
 }
 
 impl SelectBuilder {
@@ -40,10 +42,13 @@ impl SelectBuilder {
             limit: None,
             offset: None,
             result_schema: Schema::empty(),
+            added_members: HashSet::new(),
         }
     }
 
     pub fn new_from_select(select: Rc<Select>) -> Self {
+        // Note: We don't reconstruct added_members here as this is used for wrapping existing selects
+        // where deduplication has already occurred. Start fresh.
         Self {
             projection_columns: select.projection_columns.clone(),
             from: select.from.clone(),
@@ -56,10 +61,16 @@ impl SelectBuilder {
             limit: select.limit,
             offset: select.offset,
             result_schema: Schema::clone(&select.schema),
+            added_members: HashSet::new(),
         }
     }
 
     pub fn add_projection_member(&mut self, member: &Rc<MemberSymbol>, alias: Option<String>) {
+        // Check if this member has already been added (for deduplication with unrelated joins)
+        if self.added_members.contains(&member.full_name()) {
+            return;
+        }
+
         let alias = if let Some(alias) = alias {
             alias
         } else {
@@ -75,6 +86,7 @@ impl SelectBuilder {
         self.projection_columns.push(aliased_expr);
         self.result_schema
             .add_column(SchemaColumn::new(alias.clone(), Some(member.clone())));
+        self.added_members.insert(member.full_name());
     }
 
     pub fn add_projection_member_without_schema(

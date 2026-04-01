@@ -435,6 +435,43 @@ impl SqlCall {
         }
         Ok(Rc::new(result))
     }
+
+    /// Checks if this SqlCall represents an unrelated dimension join condition (e.g., "1 = 1" or constant true).
+    /// This is used to detect joins between cubes with no actual relationship.
+    pub fn is_unrelated_join_condition(&self) -> bool {
+        // Check if the template is a simple string without dependencies, filter params, or security context
+        if !self.deps.is_empty() || !self.filter_params.is_empty() || !self.filter_groups.is_empty() {
+            return false;
+        }
+
+        // Check if security context has values
+        if !self.security_context.values.is_empty() {
+            return false;
+        }
+
+        // Check if the template is a string (not a vector)
+        if let SqlTemplate::String(template_str) = &self.template {
+            // Check for common patterns that indicate a constant true condition
+            let trimmed = template_str.trim();
+
+            // Check for "1 = 1" pattern
+            if trimmed == "1 = 1" || trimmed == "1=1" {
+                return true;
+            }
+
+            // Check for "TRUE" pattern (case insensitive)
+            if trimmed.eq_ignore_ascii_case("true") {
+                return true;
+            }
+
+            // Check for "1" as a boolean true
+            if trimmed == "1" {
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 impl crate::utils::debug::DebugSql for SqlCall {

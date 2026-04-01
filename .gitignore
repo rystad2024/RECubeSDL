@@ -26,3 +26,5 @@ rust/cubesql/profile.json
 .vimspector.json
 .claude/settings.local.json
 gen
+/target
+rust/target

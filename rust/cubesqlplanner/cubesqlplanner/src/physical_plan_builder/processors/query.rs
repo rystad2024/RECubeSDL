@@ -2,12 +2,13 @@ use super::super::{LogicalNodeProcessor, ProcessableNode, PushDownBuilderContext
 use crate::logical_plan::{all_symbols, MultiStageMemberLogicalType, Query, QuerySource};
 use crate::physical_plan_builder::PhysicalPlanBuilder;
 use crate::plan::{
-    CalcGroupItem, CalcGroupsJoin, Cte, Expr, From, MemberExpression, Select, SelectBuilder,
+    CalcGroupItem, CalcGroupsJoin, Cte, Expr, FilterItem, From, MemberExpression, Select, SelectBuilder,
 };
 use crate::planner::sql_evaluator::collectors::collect_calc_group_dims_from_nodes;
 use crate::planner::sql_evaluator::{get_filtered_values, ReferencesBuilder};
 use cubenativeutils::CubeError;
 use itertools::Itertools;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 pub struct QueryProcessor<'a> {
@@ -21,6 +22,26 @@ impl QueryProcessor<'_> {
             QuerySource::PreAggregation(_) => false,
             QuerySource::LogicalJoin(_) => false,
         }
+    }
+
+    /// Extract filters that apply to a specific cube (by cube name).
+    /// Returns a map of cube_name -> FilterItem containing only filters for that cube.
+    fn partition_filters_by_cube(
+        &self,
+        all_filters: Option<FilterItem>,
+        cube_names: &HashSet<String>,
+    ) -> HashMap<String, FilterItem> {
+        let mut result = HashMap::new();
+
+        if let Some(filter_item) = all_filters {
+            for cube_name in cube_names.iter() {
+                if let Some(cube_filter) = filter_item.find_subtree_for_cube(cube_name) {
+                    result.insert(cube_name.clone(), cube_filter);
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -78,6 +99,45 @@ impl<'a> LogicalNodeProcessor<'a, Query> for QueryProcessor<'a> {
                 .all(|d| d.full_name() != member.full_name())
             {
                 context.add_multi_stage_dimension(member.full_name());
+            }
+        }
+
+        // Collect cubes with queried dimensions for unrelated join optimization
+        let mut all_unrelated_cubes = HashSet::new();
+        if let QuerySource::LogicalJoin(join) = logical_plan.source() {
+            let mut cubes_with_dims_set = HashSet::new();
+            let mut all_queried_dims = Vec::new();
+
+            for dim in logical_plan.schema().all_dimensions() {
+                let cube_name = dim.cube_name().to_string();
+                cubes_with_dims_set.insert(cube_name.clone());
+                all_queried_dims.push(dim.clone());
+            }
+
+            // Identify all unrelated cubes (filters for these must be stripped from outer WHERE)
+            // Queried unrelated cubes get filters pushed into DISTINCT subqueries instead.
+            // Skipped unrelated cubes (no queried dims) have filters dropped entirely.
+            let mut queried_unrelated_cubes = HashSet::new();
+            for join_item in join.joins().iter() {
+                if join_item.on_sql().is_unrelated_join_condition() {
+                    let cube_name = join_item.cube().name().to_string();
+                    all_unrelated_cubes.insert(cube_name.clone());
+                    if cubes_with_dims_set.contains(&cube_name) {
+                        queried_unrelated_cubes.insert(cube_name);
+                    }
+                }
+            }
+
+            context.cubes_with_queried_dimensions = Some(cubes_with_dims_set);
+            context.queried_dimensions = Some(all_queried_dims);
+
+            // Partition filters by cube name for unrelated join optimization
+            // These get pushed into DISTINCT subqueries for queried unrelated cubes
+            if let Some(filters) = logical_plan.filter().all_filters() {
+                let cube_filters = self.partition_filters_by_cube(filters.to_filter_item(), &queried_unrelated_cubes);
+                if !cube_filters.is_empty() {
+                    context.unrelated_cube_filters = Some(cube_filters);
+                }
             }
         }
 
@@ -192,6 +252,14 @@ impl<'a> LogicalNodeProcessor<'a, Query> for QueryProcessor<'a> {
                 select_builder.set_group_by(group_by);
             }
             select_builder.set_having(having);
+            // Strip filters for all unrelated cubes from the outer WHERE.
+            // Skipped cubes: filters dropped entirely (no dims queried).
+            // Queried cubes: filters already pushed into DISTINCT subqueries.
+            let filter = if !all_unrelated_cubes.is_empty() {
+                filter.and_then(|f| f.remove_filters_for_cubes(&all_unrelated_cubes))
+            } else {
+                filter
+            };
             select_builder.set_filter(filter);
         }
 

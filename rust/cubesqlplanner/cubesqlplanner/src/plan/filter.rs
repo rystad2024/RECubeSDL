@@ -3,6 +3,7 @@ use crate::planner::sql_evaluator::MemberSymbol;
 use crate::planner::sql_templates::PlanSqlTemplates;
 use crate::planner::VisitorContext;
 use cubenativeutils::CubeError;
+use std::collections::HashSet;
 use std::fmt;
 use std::rc::Rc;
 
@@ -228,6 +229,152 @@ impl FilterItem {
         }
     }
 
+    /// Remove filter items whose members belong to the specified cubes.
+    /// For AND groups, remaining children are kept. For OR groups, if any
+    /// child is removed the whole group is dropped (partial OR is invalid).
+    /// Returns None if no filters remain after removal.
+    pub fn remove_filters_for_cubes(
+        &self,
+        cubes_to_remove: &HashSet<String>,
+    ) -> Option<FilterItem> {
+        match self {
+            FilterItem::Group(group) => {
+                if group.items.is_empty() {
+                    return None;
+                }
+
+                if group.operator == FilterGroupOperator::Or {
+                    // For OR groups, check if ANY child references a removed cube.
+                    // If so, drop the entire OR group (can't partially remove from OR).
+                    let children: Vec<Option<FilterItem>> = group
+                        .items
+                        .iter()
+                        .map(|child| child.remove_filters_for_cubes(cubes_to_remove))
+                        .collect();
+
+                    // If any child was removed, the whole OR is invalid
+                    if children.len() != group.items.len()
+                        || children.iter().any(|c| c.is_none())
+                    {
+                        // Check: a child returning None means it was entirely for removed cubes
+                        // But remove_filters_for_cubes returns None when fully removed.
+                        // If any child is fully removed, drop whole OR.
+                        if children.iter().any(|c| c.is_none()) {
+                            return None;
+                        }
+                    }
+
+                    // All children survived - check if any were modified
+                    let new_children: Vec<FilterItem> =
+                        children.into_iter().flatten().collect();
+                    if new_children.is_empty() {
+                        return None;
+                    }
+                    if new_children.len() == 1 {
+                        return Some(new_children.into_iter().next().unwrap());
+                    }
+                    Some(FilterItem::Group(Rc::new(FilterGroup::new(
+                        FilterGroupOperator::Or,
+                        new_children,
+                    ))))
+                } else {
+                    // AND group: keep surviving children
+                    let remaining: Vec<FilterItem> = group
+                        .items
+                        .iter()
+                        .filter_map(|child| child.remove_filters_for_cubes(cubes_to_remove))
+                        .collect();
+
+                    if remaining.is_empty() {
+                        return None;
+                    }
+                    if remaining.len() == 1 {
+                        return Some(remaining.into_iter().next().unwrap());
+                    }
+                    Some(FilterItem::Group(Rc::new(FilterGroup::new(
+                        FilterGroupOperator::And,
+                        remaining,
+                    ))))
+                }
+            }
+            FilterItem::Item(item) => {
+                let cube_name = item.member_evaluator().cube_name();
+                if cubes_to_remove.contains(&cube_name) {
+                    None
+                } else {
+                    Some(self.clone())
+                }
+            }
+            FilterItem::Segment(item) => {
+                let cube_name = item.member_evaluator().cube_name();
+                if cubes_to_remove.contains(&cube_name) {
+                    None
+                } else {
+                    Some(self.clone())
+                }
+            }
+        }
+    }
+
+    /// Find subtree of filters whose members belong to the specified cube.
+    /// Similar to find_subtree_for_members but matches by cube name instead of member full name.
+    /// Only processes AND groups for partial matching; OR groups must fully match or are dropped.
+    pub fn find_subtree_for_cube(&self, cube_name: &str) -> Option<FilterItem> {
+        match self {
+            FilterItem::Group(group) => {
+                if group.items.is_empty() {
+                    return None;
+                }
+
+                // Check if ALL members in this subtree belong to the target cube
+                if let Some(filter_members) = self.extract_filter_members() {
+                    let all_match = filter_members
+                        .iter()
+                        .all(|m| m.cube_name() == cube_name);
+                    if all_match {
+                        return Some(self.clone());
+                    }
+                }
+
+                // Only partial-match AND groups
+                if group.operator == FilterGroupOperator::And {
+                    let matching: Vec<FilterItem> = group
+                        .items
+                        .iter()
+                        .filter_map(|child| child.find_subtree_for_cube(cube_name))
+                        .collect();
+
+                    if matching.is_empty() {
+                        return None;
+                    }
+                    if matching.len() == 1 {
+                        return Some(matching.into_iter().next().unwrap());
+                    }
+                    return Some(FilterItem::Group(Rc::new(FilterGroup::new(
+                        FilterGroupOperator::And,
+                        matching,
+                    ))));
+                }
+
+                None
+            }
+            FilterItem::Item(item) => {
+                if item.member_evaluator().cube_name() == cube_name {
+                    Some(self.clone())
+                } else {
+                    None
+                }
+            }
+            FilterItem::Segment(item) => {
+                if item.member_evaluator().cube_name() == cube_name {
+                    Some(self.clone())
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     /// Find value restrictions for a given symbol across filter tree
     /// Returns:
     /// - None: no restrictions found for this symbol
@@ -317,6 +464,25 @@ impl FilterItem {
 }
 
 impl Filter {
+    /// Remove filter items whose members belong to the specified cubes.
+    /// Returns None if no filters remain after removal.
+    pub fn remove_filters_for_cubes(
+        &self,
+        cubes_to_remove: &HashSet<String>,
+    ) -> Option<Filter> {
+        let remaining: Vec<FilterItem> = self
+            .items
+            .iter()
+            .filter_map(|item| item.remove_filters_for_cubes(cubes_to_remove))
+            .collect();
+
+        if remaining.is_empty() {
+            None
+        } else {
+            Some(Filter { items: remaining })
+        }
+    }
+
     pub fn to_sql(
         &self,
         templates: &PlanSqlTemplates,

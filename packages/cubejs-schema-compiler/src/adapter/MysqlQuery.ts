@@ -182,24 +182,28 @@ export class MysqlQuery extends BaseQuery {
 
   public sqlTemplates() {
     const templates = super.sqlTemplates();
-    templates.functions.STRING_AGG = 'GROUP_CONCAT({% if distinct %}DISTINCT {% endif %}{{ args[0] }} SEPARATOR {{ args[1] }})';
     // PERCENTILE_CONT works but requires PARTITION BY
     delete templates.functions.PERCENTILECONT;
     templates.quotes.identifiers = '`';
     templates.quotes.escape = '\\`';
     // NOTE: this template contains a comma; two order expressions are being generated
     templates.expressions.sort = '{{ expr }} IS NULL {% if nulls_first %}DESC{% else %}ASC{% endif %}, {{ expr }} {% if asc %}ASC{% else %}DESC{% endif %}';
-    delete templates.expressions.ilike;
+    // delete templates.expressions.ilike;
+    templates.expressions.ilike = ' {% if negated %}NOT {% endif %} ILIKE( {{ expr }}, {{ pattern }}) ';
+    templates.tesseract.ilike = ' {% if negated %}NOT {% endif %} ILIKE( {{ expr }}, {{ pattern }}) ';
+    templates.filters.like_pattern = ' CONCAT( {% if start_wild %}\'%\' , {% endif %}{{ value }}{% if end_wild %} , \'%\'{% endif %} ) ';
     templates.types.string = 'CHAR';
     templates.types.boolean = 'TINYINT';
     templates.types.timestamp = 'DATETIME';
     delete templates.types.interval;
     templates.types.binary = 'BLOB';
+    templates.join_types.full = 'FULL';
+    templates.operators.is_not_distinct_from = '<=>';
 
     templates.expressions.concat_strings = 'CONCAT({{ strings | join(\',\' ) }})';
 
-    templates.filters.like_pattern = 'CONCAT({% if start_wild %}\'%\'{% else %}\'\'{% endif %}, LOWER({{ value }}), {% if end_wild %}\'%\'{% else %}\'\'{% endif %})';
-    templates.tesseract.ilike = 'LOWER({{ expr }}) {% if negated %}NOT {% endif %}LIKE {{ pattern }}';
+    // templates.filters.like_pattern = 'CONCAT({% if start_wild %}\'%\'{% else %}\'\'{% endif %}, LOWER({{ value }}), {% if end_wild %}\'%\'{% else %}\'\'{% endif %})';
+    // templates.tesseract.ilike = 'LOWER({{ expr }}) {% if negated %}NOT {% endif %}LIKE {{ pattern }}';
 
     templates.statements.time_series_select = 'SELECT TIMESTAMP(dates.f) date_from, TIMESTAMP(dates.t) date_to \n' +
       'FROM (\n' +

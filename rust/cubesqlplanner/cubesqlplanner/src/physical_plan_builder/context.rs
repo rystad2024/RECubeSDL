@@ -14,7 +14,7 @@ pub struct MultiStageDimensionContext {
     pub join_dimensions: Vec<Rc<MemberSymbol>>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub(super) struct PushDownBuilderContext {
     pub alias_prefix: Option<String>,
     pub render_measure_as_state: bool, //Render measure as state, for example hll state for count_approx
@@ -27,6 +27,12 @@ pub(super) struct PushDownBuilderContext {
     pub multi_stage_schemas: HashMap<String, Rc<Schema>>,
     pub multi_stage_dimension_schemas: HashMap<Vec<String>, Rc<MultiStageDimensionContext>>,
     pub multi_stage_dimensions: Vec<String>,
+    /// Set of cube names that have dimensions being queried (for unrelated join optimization)
+    pub cubes_with_queried_dimensions: Option<std::collections::HashSet<String>>,
+    /// List of all dimensions being queried (for building DISTINCT subqueries for unrelated joins)
+    pub queried_dimensions: Option<Vec<Rc<MemberSymbol>>>,
+    /// Filters per cube for unrelated joins (cube_name -> filter)
+    pub unrelated_cube_filters: Option<HashMap<String, crate::plan::FilterItem>>,
 }
 
 impl PushDownBuilderContext {

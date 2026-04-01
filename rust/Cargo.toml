@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    #"cubenativeutils"
+    "cubeorchestrator"
+    #"cubeshared"
+    #"cubesql"
+    #"cubesqlplanner"
+    #"cubestore"
+]

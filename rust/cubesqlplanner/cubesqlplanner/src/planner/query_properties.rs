@@ -533,7 +533,6 @@ impl QueryProperties {
             .add_dimensions(&self.time_dimensions)
             .add_filters(&self.time_dimensions_filters)
             .add_filters(&self.dimensions_filters)
-            .add_filters(&self.measures_filters)
             .add_filters(&self.segments)
             .build(&self.measures)?;
         self.multi_fact_join_groups =
