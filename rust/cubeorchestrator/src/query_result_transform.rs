@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use indexmap::IndexMap;
 use itertools::multizip;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -177,11 +178,10 @@ pub fn get_members(
     alias_to_member_name_map: &HashMap<String, String>,
     annotation: &HashMap<String, ConfigItem>,
 ) -> Result<(MembersMap, Vec<String>)> {
-    let mut members_map: MembersMap = HashMap::new();
-    // Hashmaps don't guarantee the order of the elements while iterating
-    // this fires in get_compact_row because members map doesn't hold the members for
-    // date range queries, which are added later and thus columns in final recordset are not
-    // in sync with the order of members in members list.
+    let mut members_map: MembersMap = IndexMap::new();
+    // IndexMap maintains insertion order, ensuring deterministic column ordering.
+    // The order comes from db_data.columns which now preserves the database result order
+    // (since JsRawData uses IndexMap instead of HashMap).
     let mut members_arr: Vec<String> = vec![];
 
     if db_data.columns.is_empty() {
@@ -273,13 +273,13 @@ pub fn get_members(
 
 /// Convert DB response object to the compact output format.
 pub fn get_compact_row(
-    members_to_alias_map: &HashMap<String, String>,
+    members_to_alias_map: &IndexMap<String, String>,
     annotation: &HashMap<String, ConfigItem>,
     query_type: &QueryType,
     members: &[String],
     time_dimensions: Option<&Vec<QueryTimeDimension>>,
     db_row: &[DBResponseValue],
-    columns_pos: &HashMap<String, usize>,
+    columns_pos: &IndexMap<String, usize>,
 ) -> Result<Vec<DBResponsePrimitive>> {
     let mut row: Vec<DBResponsePrimitive> = Vec::with_capacity(members.len());
 
@@ -328,9 +328,9 @@ pub fn get_vanilla_row(
     query_type: &QueryType,
     query: &NormalizedQuery,
     db_row: &[DBResponseValue],
-    columns_pos: &HashMap<String, usize>,
-) -> Result<HashMap<String, DBResponsePrimitive>> {
-    let mut row = HashMap::new();
+    columns_pos: &IndexMap<String, usize>,
+) -> Result<IndexMap<String, DBResponsePrimitive>> {
+    let mut row = IndexMap::new();
 
     // FIXME: For now custom granularities are not supported, only common ones.
     // There is no granularity type/class implementation in rust yet.
@@ -533,7 +533,7 @@ pub enum TransformedData {
         members: Vec<String>,
         dataset: Vec<Vec<DBResponsePrimitive>>,
     },
-    Vanilla(Vec<HashMap<String, DBResponsePrimitive>>),
+    Vanilla(Vec<IndexMap<String, DBResponsePrimitive>>),
 }
 
 impl TransformedData {
@@ -2188,7 +2188,7 @@ mod tests {
             &QueryResult {
                 columns: vec![],
                 rows: vec![],
-                columns_pos: HashMap::new(),
+                columns_pos: IndexMap::new(),
             },
             alias_to_member_name_map,
             annotation,
@@ -2217,7 +2217,7 @@ mod tests {
             alias_to_member_name_map,
             annotation,
         )?;
-        let members_map_expected: MembersMap = HashMap::from([
+        let members_map_expected: MembersMap = IndexMap::from([
             (
                 "ECommerceRecordsUs2021.postalCode".to_string(),
                 "e_commerce_records_us2021__postal_code".to_string(),
@@ -2249,7 +2249,7 @@ mod tests {
             &QueryResult {
                 columns: vec![],
                 rows: vec![],
-                columns_pos: HashMap::new(),
+                columns_pos: IndexMap::new(),
             },
             alias_to_member_name_map,
             annotation,
@@ -2278,7 +2278,7 @@ mod tests {
             alias_to_member_name_map,
             annotation,
         )?;
-        let members_map_expected: MembersMap = HashMap::from([
+        let members_map_expected: MembersMap = IndexMap::from([
             (
                 "ECommerceRecordsUs2021.orderDate.day".to_string(),
                 "e_commerce_records_us2021__order_date_day".to_string(),
@@ -2321,7 +2321,7 @@ mod tests {
             &QueryResult {
                 columns: vec![],
                 rows: vec![],
-                columns_pos: HashMap::new(),
+                columns_pos: IndexMap::new(),
             },
             alias_to_member_name_map,
             annotation,
@@ -2353,7 +2353,7 @@ mod tests {
             alias_to_member_name_map,
             annotation,
         )?;
-        let members_map_expected: HashMap<String, String> = HashMap::from([
+        let members_map_expected: MembersMap = IndexMap::from([
             (
                 "ECommerceRecordsUs2021.orderDate.month".to_string(),
                 "e_commerce_records_us2021__order_date_month".to_string(),
@@ -2648,7 +2648,7 @@ mod tests {
             &raw_data.rows[0],
             &raw_data.columns_pos,
         )?;
-        let expected = HashMap::from([
+        let expected = IndexMap::from([
             (
                 "ECommerceRecordsUs2021.city".to_string(),
                 DBResponsePrimitive::String("Missouri City".to_string()),

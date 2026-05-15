@@ -480,7 +480,7 @@ impl QueryProperties {
             &self.time_dimensions,
             &self.time_dimensions_filters,
             &self.dimensions_filters,
-            &self.measures_filters,
+            &vec![],
             &self.segments,
         )
     }
@@ -527,7 +527,7 @@ impl QueryProperties {
             .extend(time_dimensions_filters_join_hints.into_iter());
         dimension_and_filter_join_hints_concat.extend(dimensions_filters_join_hints.into_iter());
         dimension_and_filter_join_hints_concat.extend(segments_join_hints.into_iter());
-        // TODO This is not quite correct. Decide on how to handle it. Keeping it here just to blow up on unsupported case
+        // // TODO This is not quite correct. Decide on how to handle it. Keeping it here just to blow up on unsupported case
         dimension_and_filter_join_hints_concat.extend(measures_filters_join_hints.into_iter());
 
         let measures_to_join = if measures.is_empty() {
@@ -907,6 +907,25 @@ impl QueryProperties {
                 }
             }
         }
+
+        // TODO: Validate if this approach is fine in the longer run
+        // Deduplicate measures to avoid same measure appearing multiple times
+        // when calculated measures reference other calculated measures
+        result.regular_measures = result
+            .regular_measures
+            .into_iter()
+            .unique_by(|m| m.full_name())
+            .collect_vec();
+        result.multiplied_measures = result
+            .multiplied_measures
+            .into_iter()
+            .unique_by(|m| m.measure().full_name())
+            .collect_vec();
+        result.multi_stage_measures = result
+            .multi_stage_measures
+            .into_iter()
+            .unique_by(|m| m.full_name())
+            .collect_vec();
 
         Ok(result)
     }
